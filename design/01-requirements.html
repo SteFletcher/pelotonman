@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>01 · Requirements — Pelotonman Design</title>
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">🚴 PELOTONMAN</span>
+    <span class="crumb"><a href="index.html">Design</a> › 01 · Requirements</span>
+    <span class="spacer"></span>
+    <span class="meta">SRS · v0.1</span>
+  </header>
+
+  <main class="wrap">
+    <nav class="side-nav">
+      <h3>Overview</h3>
+      <a href="index.html">Home</a>
+      <a href="01-requirements.html" class="active">01 · Requirements</a>
+      <h3>Design</h3>
+      <a href="02-architecture.html">02 · Architecture</a>
+      <a href="03-data-model.html">03 · Data Model</a>
+      <a href="04-engine-specs.html">04 · Engine Specs</a>
+      <a href="05-ui-design.html">05 · UI Design</a>
+      <h3>Delivery</h3>
+      <a href="06-test-plan.html">06 · Test Plan</a>
+    </nav>
+
+    <article class="doc">
+      <h1>01 · Requirements Specification</h1>
+      <p class="subtitle">Software Requirements Specification (SRS) — functional &amp; non-functional</p>
+
+      <h2>1. Purpose &amp; Scope</h2>
+      <p>Pelotonman is a single-player cycling-team management career game that runs entirely
+      in the browser. The player assumes the role of a team manager (directeur sportif) at
+      one of 24 real professional teams and is responsible for rider recruitment, race
+      selection, race plans and in-race orders, transfers, sponsorship finances, and meeting
+      the board's expectations across a full season of one-day classics, stage races, and
+      three Grand Tours.</p>
+      <div class="callout">
+        <span class="label">In scope</span>
+        <ul>
+          <li>Career mode with a single human-managed team and 23 AI-managed teams.</li>
+          <li>Two 12-team divisions (WorldTour / ProTeam) with promotion/relegation on a 1-season points window and a season-long team points series.</li>
+          <li>Three Grand Tours (Giro d'Italia, Tour de France, Vuelta a España) as marquee multi-stage GC battles, plus a calendar of classics and shorter stage races.</li>
+          <li>Resumable kilometer-by-kilometer race simulation with live team orders from the car.</li>
+          <li>Squad, race plans, transfers, sponsorship/finances, scouting, infrastructure, board, and news systems.</li>
+          <li>Deterministic save/load to localStorage.</li>
+        </ul>
+      </div>
+      <div class="callout red">
+        <span class="label">Out of scope (deferred)</span>
+        <ul>
+          <li>Nationals, world championships, and hotseat multiplayer.</li>
+          <li>Backend services, accounts, cross-device sync.</li>
+          <li>Audio, 3D graphics, or live real-world race data feeds.</li>
+          <li>Women's peloton (a planned roadmap item; the v1 world is the men's WT/ProTeam).</li>
+        </ul>
+      </div>
+
+      <h2>2. Stakeholders &amp; Personas</h2>
+      <table class="grid">
+        <thead><tr><th>Persona</th><th>Motivation</th><th>Key flows</th></tr></thead>
+        <tbody>
+          <tr><td><strong>The Directeur</strong></td><td>Building a project over years, nurturing a GC leader toward the Tour</td><td>Continue → race → transfers → season end → rider development</td></tr>
+          <tr><td><strong>The Tactician</strong></td><td>Lives for race day; chase/leadout/attack decisions from the car</td><td>Race plan → pre-race report → live race with pauses &amp; team orders</td></tr>
+          <tr><td><strong>The Builder</strong></td><td>Scouting young talent, transfers, sponsorship, infrastructure</td><td>Transfers → scouting → finances → infrastructure → squad</td></tr>
+        </tbody>
+      </table>
+
+      <h2>3. Functional Requirements</h2>
+      <p>Requirements are grouped by subsystem. Each carries an ID for traceability
+      into the architecture and test plan.</p>
+
+      <h3>3.1 Career &amp; World (CAR)</h3>
+      <table class="grid">
+        <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance criterion</th></tr></thead>
+        <tbody>
+          <tr><td><code>CAR-01</code></td><td>The player shall choose a manager name and one of 24 real teams to begin a career.</td><td>New game places the chosen team under human control; all others AI.</td></tr>
+          <tr><td><code>CAR-02</code></td><td>The world shall contain two divisions of 12 real teams with authentic rosters.</td><td>24 teams; e.g. UAE Team Emirates always contains Tadej Pogačar, Visma | Lease a Bike contains Jonas Vingegaard, Soudal–Quick-Step contains Remco Evenepoel.</td></tr>
+          <tr><td><code>CAR-03</code></td><td>The season shall be a calendar of real races interleaved across the spring, summer, and autumn.</td><td>~28 race days: Omloop → Strade Bianche → Milan-San Remo → … → Il Lombardia, including 3 Grand Tours.</td></tr>
+          <tr><td><code>CAR-04</code></td><td>Two teams shall be promoted and two relegated each season on the season points window.</td><td>Top 2 of ProTeam swap divisions with bottom 2 of WorldTour (mirroring UCI relegation).</td></tr>
+          <tr><td><code>CAR-05</code></td><td>Board confidence shall track performance and trigger sacking below a threshold.</td><td>Confidence &lt; 15 → manager sacked; job market opens.</td></tr>
+          <tr><td><code>CAR-06</code></td><td>A sacked manager shall be able to take a job at a lesser team.</td><td>Up to 2 reachable teams offered; accepting continues the career mid-season.</td></tr>
+          <tr><td><code>CAR-07</code></td><td>Strong seasons shall attract offers from bigger teams.</td><td>Poach offer raised when reputation exceeds current team tier + 5.</td></tr>
+          <tr><td><code>CAR-08</code></td><td>Manager reputation shall move with seasons, jersey wins, and sackings.</td><td>GT win +20, monument win +10, series champion +8, relegation −8, sack −12.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.2 Race Simulation (RAC)</h3>
+      <table class="grid">
+        <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance criterion</th></tr></thead>
+        <tbody>
+          <tr><td><code>RAC-01</code></td><td>The race engine shall simulate kilometer-by-kilometer and be pausable at any time.</td><td><code>RaceSim.playSegment()</code> advances one segment; <code>pauseRace()</code> halts the timer.</td></tr>
+          <tr><td><code>RAC-02</code></td><td>The same seed shall produce an identical race.</td><td>Deep-equal result objects across replays with the same seed.</td></tr>
+          <tr><td><code>RAC-03</code></td><td>The engine shall model a peloton, breakaway groups, time gaps, climbs, intermediate sprints, and a finish.</td><td>Result carries groups with gaps; GC/points/KOM classifications computed correctly.</td></tr>
+          <tr><td><code>RAC-04</code></td><td>Team orders shall be issuable at any pause: chase, sit in / control, send up road, leadout, attack.</td><td><code>setOrders()</code> updates per-team directives; affects pace &amp; break composition next segment.</td></tr>
+          <tr><td><code>RAC-05</code></td><td>The race shall auto-pause at key moments: summit of a climb, breakaway forming, final 5 km, crashes to the user's riders.</td><td>Key-moment banner shown; user's rider left in trouble until reacting to own crashes.</td></tr>
+          <tr><td><code>RAC-06</code></td><td>Race plan and aggression shall be changeable mid-race by both user and AI.</td><td><code>setRacePlan()</code> remaps roles; AI chases when behind on GC, shuts down when ahead.</td></tr>
+          <tr><td><code>RAC-07</code></td><td>Stage races shall accumulate GC time across stages; ties broken by stage placings &amp; time trial.</td><td>GC = Σ stage times + bonuses; white jersey = best ≤25; points &amp; KOM accumulated.</td></tr>
+          <tr><td><code>RAC-08</code></td><td>Per-rider live ratings out of 10 shall update from race events.</td><td>Win +1.5, leadout +0.4, pull +0.05/km, dropped −0.6, crash −1.0, etc.</td></tr>
+          <tr><td><code>RAC-09</code></td><td>Profile-appropriate advantage shall apply: climbers gain on climbs, sprinters on flat finishes, time trialists in ITTs.</td><td>Climb sector multiplies CLM/LDR power; flat finish multiplies SPR power.</td></tr>
+          <tr><td><code>RAC-10</code></td><td>One-day classics shall produce a single result; Grand Tour stages shall feed a live jerseys panel.</td><td>Classic result = {placings, gaps, points}; GT stage result updates GC/points/KOM/white.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.3 Squad &amp; Riders (SQD)</h3>
+      <table class="grid">
+        <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance criterion</th></tr></thead>
+        <tbody>
+          <tr><td><code>SQD-01</code></td><td>Each team shall carry a roster of ~26 real riders with role, age, attributes, and hidden traits.</td><td>~6 LDR, 6 SPR, 8 CLM, 6 ROU per team; <code>consistency</code> &amp; <code>injuryProne</code> hidden.</td></tr>
+          <tr><td><code>SQD-02</code></td><td>Riders shall have condition, form, morale, wages, value, and contract years.</td><td>All fields present and updated weekly.</td></tr>
+          <tr><td><code>SQD-03</code></td><td>The engine shall auto-select the best available 8-rider race team + 4-man reserve for a race plan.</td><td><code>selectRaceTeam()</code> deterministic; injured/ill never picked.</td></tr>
+          <tr><td><code>SQD-04</code></td><td>Out-of-role riders shall incur a penalty.</td><td>0.8× for a non-leader in LDR slot, 0.75× for severe mismatches.</td></tr>
+          <tr><td><code>SQD-05</code></td><td>Riders shall develop at season end: youngsters grow, veterans fade, some retire.</td><td>≤22 grow +4; &gt;32 fade −4; age ≥36 retires at 55% chance.</td></tr>
+          <tr><td><code>SQD-06</code></td><td>Crashes/mechanicals shall carry real durations; serious crashes force abandonment.</td><td><code>injuryWeeks</code> decremented weekly; DNF removes rider from remaining stages of a stage race.</td></tr>
+          <tr><td><code>SQD-07</code></td><td>A neo-pro intake shall keep rosters viable.</td><td>Rosters refilled to ≥22 each season end with young real-names talent.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.4 Race Plans &amp; Tactics (TAC)</h3>
+      <table class="grid">
+        <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance criterion</th></tr></thead>
+        <tbody>
+          <tr><td><code>TAC-01</code></td><td>Five race plans and three aggressions shall be selectable.</td><td>Sprint Train, Climbing Block, All-Round, Breakaway, GC Defence; defensive/normal/attacking.</td></tr>
+          <tr><td><code>TAC-02</code></td><td>The manager shall swap riders between race team, reserve, and rested by clicking.</td><td>Two clicks complete a swap; lineup persists until invalid.</td></tr>
+          <tr><td><code>TAC-03</code></td><td>Aggression shall affect breakaway likelihood, chase intensity, and energy expenditure.</td><td>Attacking ×1.15 break chance / ×1.10 energy burn; defensive ×0.80 / ×0.90.</td></tr>
+          <tr><td><code>TAC-04</code></td><td>Race plan shall be profile-aware: a sprint plan on an mountain stage warns the user.</td><td>Mismatch warning shown on pre-race; AI picks profile-appropriate plans.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.5 Transfers &amp; Scouting (TRF)</h3>
+      <table class="grid">
+        <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance criterion</th></tr></thead>
+        <tbody>
+          <tr><td><code>TRF-01</code></td><td>The manager shall search the market with role and value filters.</td><td><code>searchRiders()</code> returns ranked rows excluding own team.</td></tr>
+          <tr><td><code>TRF-02</code></td><td>Bids shall be evaluated as accepted / countered / rejected based on asking price.</td><td>≥ asking → accepted; ≥ 90% value → countered at midpoint; else rejected.</td></tr>
+          <tr><td><code>TRF-03</code></td><td>Riders shall have willingness that depends on the tier step and project ambition.</td><td><code>riderAgrees()</code> reluctant to drop divisions unless offered leadership.</td></tr>
+          <tr><td><code>TRF-04</code></td><td>Squad-protection rules shall prevent releasing below a floor.</td><td>≥ 22 riders and ≥ 2 LDR always retained.</td></tr>
+          <tr><td><code>TRF-05</code></td><td>AI teams shall bid for the user's riders and conduct AI-to-AI transfers.</td><td>Pending offers arrive in inbox; ~15% weekly AI-to-AI chance.</td></tr>
+          <tr><td><code>TRF-06</code></td><td>Out-of-contract riders shall be signable on a free.</td><td><code>#signFreeAgent</code> path with wage demand only.</td></tr>
+          <tr><td><code>TRF-07</code></td><td>The manager shall transfer-list and renew contracts.</td><td>Listed riders cheaper to buy (0.85×) and draw more AI interest.</td></tr>
+          <tr><td><code>TRF-08</code></td><td>Other teams' attributes shall show as estimate ranges until scouted.</td><td>£25k scout report (1 week) reveals exact attributes; ranges stable &amp; truth-containing.</td></tr>
+          <tr><td><code>TRF-09</code></td><td>Pre-race opposition reports shall show form, predicted race team, and danger rider.</td><td><code>oppositionReport()</code> returns 8 + form guide + danger rider.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.6 Sponsorship &amp; Finances (FIN)</h3>
+      <table class="grid">
+        <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance criterion</th></tr></thead>
+        <tbody>
+          <tr><td><code>FIN-01</code></td><td>Each team shall have a balance, transfer budget, and annual wage bill.</td><td>Wages deducted weekly; transfer budget ring-fenced from balance.</td></tr>
+          <tr><td><code>FIN-02</code></td><td>Prize money shall be paid per race result and per jersey, into the team balance.</td><td>Stage win, jersey income, GC bonus all credited after the race.</td></tr>
+          <tr><td><code>FIN-03</code></td><td>A marketability score shall grow with wins and drain with poor seasons.</td><td>×1.010 per win, ×1.002 per top-10, ×0.997 per no-result; floor 200.</td></tr>
+          <tr><td><code>FIN-04</code></td><td>The title-sponsor deal value shall track marketability and division tier.</td><td>Annual sponsor income = base(tier) × marketability factor; renews at season end.</td></tr>
+          <tr><td><code>FIN-05</code></td><td>The manager shall invest in infrastructure (sports science, equipment, performance staff) when funds warrant.</td><td>Each tier gives a small marginal performance gain; 12-week build, capped at level 5.</td></tr>
+          <tr><td><code>FIN-06</code></td><td>AI boards shall invest in their own infrastructure when flush.</td><td>AI invests at balance ≥ 2× cost with reserve maintained.</td></tr>
+          <tr><td><code>FIN-07</code></td><td>End-of-season prize money shall be paid by series standing and GT jerseys.</td><td>Series champion of WorldTour receives a major bonus + positional base.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.7 News &amp; Awards (NWS)</h3>
+      <table class="grid">
+        <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance criterion</th></tr></thead>
+        <tbody>
+          <tr><td><code>NWS-01</code></td><td>An inbox shall receive time-stamped news items with optional actions.</td><td>Items capped at 120; offer items carry accept/reject buttons.</td></tr>
+          <tr><td><code>NWS-02</code></td><td>Monthly Rider of the Month and end-of-season awards shall be issued.</td><td>RotM requires ≥ 3 race days in the month; season awards include series champion, GT winners, top scorer (points).</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.8 Persistence (SAV)</h3>
+      <table class="grid">
+        <thead><tr><th>ID</th><th>Requirement</th><th>Acceptance criterion</th></tr></thead>
+        <tbody>
+          <tr><td><code>SAV-01</code></td><td>The game shall auto-save to localStorage after every race week.</td><td>Save written on <code>advanceWeek</code> and after transfers/race plans.</td></tr>
+          <tr><td><code>SAV-02</code></td><td>A saved game shall restore and continue deterministically.</td><td>RNG state restored; resumed career replays identically.</td></tr>
+          <tr><td><code>SAV-03</code></td><td>The save format shall carry a version for compatibility gating.</td><td><code>SAVE_VERSION 1</code>; restore throws on mismatch.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>4. Non-Functional Requirements</h2>
+      <table class="grid">
+        <thead><tr><th>Category</th><th>Requirement</th><th>Target / measure</th></tr></thead>
+        <tbody>
+          <tr><td>Performance</td><td>Engine-only operations complete without perceptible delay.</td><td>A full season sim headless completes in &lt; 1 s.</td></tr>
+          <tr><td>Portability</td><td>No build step; runs from any static file server.</td><td><code>npm run serve</code> (python http.server) suffices.</td></tr>
+          <tr><td>Determinism</td><td>All randomness flows through one seeded RNG.</td><td>Identical seed → identical career (tested).</td></tr>
+          <tr><td>Testability</td><td>Engine is pure &amp; framework-free; UI is a thin client.</td><td>node:test suite, no DOM dependency in engine.</td></tr>
+          <tr><td>Accessibility</td><td>Keyboard navigability and ARIA labelling on key controls.</td><td>Team rows focusable + Enter/Space; <code>aria-live</code> on commentary.</td></tr>
+          <tr><td>Footprint</td><td>Zero runtime dependencies.</td><td><code>package.json</code> devDependencies only.</td></tr>
+          <tr><td>Realism</td><td>Distributions over thousands of races are believable.</td><td>~1 breakaway in 3 sticks; climbers win mountain stages; sprinters win flat finishes; time gaps plausible.</td></tr>
+          <tr><td>Data authenticity</td><td>Real team, rider, and race names; fictional but plausible attributes.</td><td>Roster names match real 2024–25 squads; no claim of real ability.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>5. Constraints &amp; Assumptions</h2>
+      <ul>
+        <li><strong>Single-player only.</strong> No network multiplayer or shared state.</li>
+        <li><strong>Real names, game-tuned attributes.</strong> Names are real; ratings are invented for play balance and do not reflect real-world ability.</li>
+        <li><strong>Browser-local storage.</strong> Saves do not leave the device; clearing storage loses the career.</li>
+        <li><strong>ES module browser target.</strong> Requires a browser supporting native ES modules (all evergreen browsers).</li>
+        <li><strong>One human team.</strong> The other 23 teams are always AI-managed; there is no hotseat mode.</li>
+        <li><strong>Men's peloton v1.</strong> Women's WorldTour is a roadmap item, not a v1 constraint.</li>
+      </ul>
+
+      <h2>6. Traceability Summary</h2>
+      <p>Each requirement ID maps to implementation modules (see <a href="02-architecture.html">02 · Architecture</a>)
+      and to test coverage (see <a href="06-test-plan.html">06 · Test Plan</a>). The matrix below is the
+      high-level mapping.</p>
+      <table class="grid">
+        <thead><tr><th>Requirement group</th><th>Primary module(s)</th><th>Primary test file(s)</th></tr></thead>
+        <tbody>
+          <tr><td>CAR</td><td><code>game.js</code></td><td><code>game.test.js</code></td></tr>
+          <tr><td>RAC</td><td><code>race.js</code></td><td><code>race.test.js</code>, <code>race-sim.test.js</code></td></tr>
+          <tr><td>SQD</td><td><code>riders.js</code>, <code>squad.js</code>, <code>teams.js</code></td><td><code>squad.test.js</code>, <code>rider-stats.test.js</code></td></tr>
+          <tr><td>TAC</td><td><code>squad.js</code>, <code>race.js</code></td><td><code>race-sim.test.js</code></td></tr>
+          <tr><td>TRF</td><td><code>transfers.js</code>, <code>game.js</code></td><td><code>game.test.js</code></td></tr>
+          <tr><td>FIN</td><td><code>game.js</code>, <code>teams.js</code></td><td><code>game.test.js</code></td></tr>
+          <tr><td>NWS</td><td><code>game.js</code>, <code>season.js</code></td><td><code>game.test.js</code></td></tr>
+          <tr><td>SAV</td><td><code>game.js</code>, <code>rng.js</code></td><td><code>game.test.js</code>, <code>rng.test.js</code></td></tr>
+        </tbody>
+      </table>
+
+      <p style="margin-top:30px"><a href="index.html">← Back to index</a> · <a href="02-architecture.html">Next: 02 · Architecture →</a></p>
+    </article>
+  </main>
+
+  <footer>Pelotonman design documentation · 01 · Requirements</footer>
+</body>
+</html>

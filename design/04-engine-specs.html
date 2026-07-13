@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>04 · Engine Specs — Pelotonman Design</title>
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">🚴 PELOTONMAN</span>
+    <span class="crumb"><a href="index.html">Design</a> › 04 · Engine Specs</span>
+    <span class="spacer"></span>
+    <span class="meta">ESD · v0.1</span>
+  </header>
+
+  <main class="wrap">
+    <nav class="side-nav">
+      <h3>Overview</h3>
+      <a href="index.html">Home</a>
+      <a href="01-requirements.html">01 · Requirements</a>
+      <h3>Design</h3>
+      <a href="02-architecture.html">02 · Architecture</a>
+      <a href="03-data-model.html">03 · Data Model</a>
+      <a href="04-engine-specs.html" class="active">04 · Engine Specs</a>
+      <a href="05-ui-design.html">05 · UI Design</a>
+      <h3>Delivery</h3>
+      <a href="06-test-plan.html">06 · Test Plan</a>
+    </nav>
+
+    <article class="doc">
+      <h1>04 · Engine Specifications</h1>
+      <p class="subtitle">Detailed specifications for the simulation &amp; game-loop subsystems</p>
+
+      <h2>1. RNG Subsystem</h2>
+      <p>Source: <code>src/engine/rng.js</code>. A mulberry32 PRNG with a serializable 32-bit state.</p>
+      <table class="grid">
+        <thead><tr><th>API</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td><code>createRng(seed)</code></td><td>Returns an RNG with state seeded from a u32.</td></tr>
+          <tr><td><code>next()</code></td><td>Float in [0, 1).</td></tr>
+          <tr><td><code>int(min, max)</code></td><td>Inclusive integer pick.</td></tr>
+          <tr><td><code>chance(p)</code></td><td>Boolean, true with probability p.</td></tr>
+          <tr><td><code>pick(items)</code></td><td>Uniform array pick.</td></tr>
+          <tr><td><code>weightedPick(entries)</code></td><td>Picks <code>{item, weight}</code> by weight.</td></tr>
+          <tr><td><code>getState()/setState(s)</code></td><td>Serialize/restore — used by save games.</td></tr>
+          <tr><td><code>hashString(str)</code></td><td>FNV-1a 32-bit hash; derives seeds from names.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        <span class="label">Determinism proof</span>
+        <p>The test <code>"identical seeds replay the identical race"</code> deep-equals two
+        <code>simulateRace</code> results with the same seed. Authored rosters consume no RNG,
+        so a fresh career is reproducible from the manager name + team + seed alone.</p>
+      </div>
+
+      <h2>2. Race Simulation Engine</h2>
+      <p>Source: <code>src/engine/race.js</code>. The most complex subsystem.</p>
+
+      <h3>2.1 Public API</h3>
+      <pre><code>class RaceSim {
+  constructor(teams, profile, options)  // {seed?, gtStage?, timeline?, wind?, autoOrders?}
+  playSegment()                         // → Event[] for that segment
+  setOrders(teamKey, { chase?, control?, sendUpRoad?, leadout?, attack? })
+  setRacePlan(teamKey, { plan?, aggression? })
+  setRole(teamKey, riderId, newRole)    // mid-race role reassignment (≤1 LDR swap)
+  simulateToEnd()
+  finish()                              // → RaceResult (see data model)
+}
+simulateRace(teams, profile, options)   // convenience: one-shot → RaceResult</code></pre>
+
+      <h3>2.2 Setup Normalisation</h3>
+      <p>The engine accepts three input shapes, normalised by <code>normalizeSetup()</code>:</p>
+      <ol>
+        <li><strong>Full squad</strong> (&gt;8 riders): <code>selectRaceTeam</code> auto-picks the 8 + reserves.</li>
+        <li><strong>Explicit 8</strong> (<code>{name, riders:[8]}</code>): used as-is, role = natural type.</li>
+        <li><strong>Prepared lineup</strong> (<code>{starters:[{rider,role}], reserves, plan, aggression}</code>): the richest form, used by the live UI.</li>
+      </ol>
+      <p><code>validateSetup()</code> then enforces ≤2 LDR, valid roles, and attribute ranges —
+      throwing descriptive errors before any segment is played.</p>
+
+      <h3>2.3 The Per-Segment Loop</h3>
+      <div class="diagram">
+<pre>
+playSegment():
+  km += segmentKm          (5–10 km; 1 km in the final 5)
+  for each team: #aiOrdersPolicy ; #aiPlanPolicy
+  resolve peloton pace from controlling teams' orders &amp; road profile
+    (climb sector flattens pace; descent quickens; headwind taxes breaks)
+  breakaway resolution:
+      if no break &amp; attack orders present → maybe form a break (riders sent up road)
+      if break exists → gap evolves by (breakPace − chasePace) × sector
+      if gap &lt; 0 → break caught, reabsorbed into peloton
+  domestique work: each pulling rider burns condition, earns pull credit → ratings
+  crashes &amp; mechanicals (0.16% per rider/segment, weighted by injuryProne &amp; density):
+      dropped rider loses time; serious → abandon (DNF) for the stage/race
+  climb sector (if any): re-group by climbing strength; gaps open at summit; KOM points
+  intermediate sprint (if any): points to first across; minor time bonus on GT stages
+  finish sector: resolve sprint (SPR-led, leadout-modulated) or summit finish (CLM/LDR)
+      → assign placings, time gaps, sprint points, time bonuses
+  condition decay for pullers/chasers (0.20/km hard, 0.08/km soft)
+  push timeline snapshot
+  if km ≥ distanceKm: finish()
+</pre>
+      </div>
+
+      <h3>2.4 Strength Model</h3>
+      <p>Per-rider effective strength is profile-aware:</p>
+      <pre><code>#eff(rider, sector) = baseAttr(rider, sector)
+                    × slotPenalty(rider, role)      // 1.0 natural, 0.8 non-leader in LDR, 0.75 severe
+                    × sharpness                     // morale + form + consistency noise
+                    × (0.7 + 0.3 × condition/100)
+                    × infraBoost(team)              // 1.0 + 0.004 × (infraLevel − 1)
+
+baseAttr by sector:
+  flat finish  → power
+  climb sector → climb
+  ITT          → tt  (= 0.6·power + 0.4·consistency)
+  sprint 250m  → power × (1 + 0.15·leadoutBonus)</code></pre>
+      <p>Team contributions are pooled: a sprint train's leadout bonus is the sum of fresh
+      SPR/ROU riders' <code>power</code> ahead of the sprinter, with diminishing returns, so a
+      full Alpecin–Deceuninck train genuinely delivers Jasper Philipsen faster than a lone
+      sprinter. Headcount on a climb helps a leader's defence but cannot substitute for low
+      <code>climb</code>.</p>
+
+      <h3>2.5 Rating System</h3>
+      <table class="grid">
+        <thead><tr><th>Event</th><th>ΔRating</th></tr></thead>
+        <tbody>
+          <tr><td>Pull / domestique km</td><td>+0.005/km</td></tr>
+          <tr><td>Pull at the front</td><td>+0.060</td></tr>
+          <tr><td>Leadout executed</td><td>+0.400</td></tr>
+          <tr><td>In the break</td><td>+0.150/segment</td></tr>
+          <tr><td>Top 10 placing</td><td>+0.250</td></tr>
+          <tr><td>Podium (top 3)</td><td>+0.700</td></tr>
+          <tr><td>Win</td><td>+1.500</td></tr>
+          <tr><td>KOM points taken</td><td>+0.050/pt</td></tr>
+          <tr><td>Dropped / lost time</td><td>−0.600</td></tr>
+          <tr><td>Crash</td><td>−1.000</td></tr>
+          <tr><td>Abandon (DNF)</td><td>−1.300</td></tr>
+          <tr><td>Saved leader (leader kept time)</td><td>+0.500 for each domestique</td></tr>
+        </tbody>
+      </table>
+      <p>Base 6.0, clamped to [1, 10].</p>
+
+      <h3>2.6 AI Behaviour</h3>
+      <ul>
+        <li><strong>Plan policy</strong>: AI picks a profile-appropriate default plan (mountain → GC Defence/Climbing Block; flat → Sprint Train; hilly → All-Round/Breakaway). A team with a GC contender in the top 5 defends; a team with no stake sends a rider up the road.</li>
+        <li><strong>Orders policy</strong>: when a dangerous break forms and an AI team's leader is behind, it contributes to the chase proportional to its stake. A leading team sets a steady control pace to discourage further breaks.</li>
+        <li><strong>Leadout policy</strong>: in the final 5 km of a flat stage, an AI team with a sprinter organises its train and burns its rouleurs in sequence.</li>
+        <li><strong>Forced abandon on serious crash</strong>: AI teams accept the loss; user teams are left in trouble to force a managerial reaction (the auto-pause).</li>
+      </ul>
+
+      <h3>2.7 Time Trial &amp; Prologue</h3>
+      <p>When <code>kind:'itt'</code>, the race simulates as a staggered individual effort: each
+      rider's time = <code>distanceKm / speed(tt, condition)</code> with small variance from
+      <code>consistency</code>. No peloton, no breaks, no orders. Team time trials (TTT) take the
+      median of the 4th-best rider's time across the 8. ITTs are the one place a rider like
+      Filippo Ganna or Remco Evenepoel can take minutes.</p>
+
+      <h2>3. Season Points Series &amp; Standings</h2>
+
+      <h3>3.1 Points Award (<code>series.js</code>)</h3>
+      <p>After each race, <code>awardPoints(result)</code> credits UCI-style points to teams and
+      riders by placing. The scale is richer at the top of WorldTour races and for monuments/Grand Tours.</p>
+      <table class="grid">
+        <thead><tr><th>Placing</th><th>One-day (classic)</th><th>Monument</th><th>GT stage</th><th>GT GC (final)</th></tr></thead>
+        <tbody>
+          <tr><td>1st</td><td>100</td><td>200</td><td>120</td><td>1000</td></tr>
+          <tr><td>2nd</td><td>70</td><td>150</td><td>80</td><td>800</td></tr>
+          <tr><td>3rd</td><td>50</td><td>110</td><td>60</td><td>640</td></tr>
+          <tr><td>4th–10th</td><td>40 → 10</td><td>90 → 30</td><td>50 → 20</td><td>520 → 360</td></tr>
+          <tr><td>11th–20th</td><td>6 → 1</td><td>20 → 10</td><td>15 → 5</td><td>300 → 200</td></tr>
+        </tbody>
+      </table>
+      <p>KOM and points-jersey points feed separate rider leaderboards; team standings use the
+      placing points only.</p>
+
+      <h3>3.2 Standings (<code>computeStandings</code>)</h3>
+      <p>Accumulates points, wins, podiums, and race count per team, then sorts on
+      <code>points → wins → podiums → name</code>. The table is the season-long "league" view.</p>
+
+      <h2>4. Grand Tour Subsystem (<code>gt.js</code>)</h2>
+      <p>Each Grand Tour is a sequenced set of 21 stages run over its calendar window (3 weeks,
+      with 2 rest days where the engine advances without a stage). <code>createGrandTour</code>
+      seeds the stage list with a realistic profile mix.</p>
+      <table class="grid">
+        <thead><tr><th>Stage mix (21)</th><th>Count</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Flat / sprint stages</td><td>~9</td><td>Sprint train territory; minor time bonification at the line.</td></tr>
+          <tr><td>Hilly / transitional</td><td>~4</td><td>Breakaway-prone; late climbs thin the bunch.</td></tr>
+          <tr><td>Mountain (summit finish)</td><td>~4</td><td>GC battle; Cat-1/HC climbs; big time gaps.</td></tr>
+          <tr><td>Individual time trial</td><td>~2</td><td>One short prologue, one long ITT.</td></tr>
+          <tr><td>Rest days</td><td>2</td><td>Engine advances; condition partially recovers.</td></tr>
+        </tbody>
+      </table>
+      <p><code>advanceStage(gt, result)</code> appends the stage result, recomputes GC (Σ time +
+      bonuses − bonifications), and updates the four jerseys:
+      <span class="jersey gc"><span class="dot"></span>GC</span> (lowest total time),
+      <span class="jersey pts"><span class="dot"></span>Points</span> (Σ sprint points),
+      <span class="jersey kom"><span class="dot"></span>KOM</span> (Σ mountain points),
+      <span class="jersey young"><span class="dot"></span>White</span> (best GC rider ≤25). A rider
+      who <code>abandoned</code> a stage is excluded from all subsequent stages and the GC.</p>
+      <div class="callout blue">
+        <span class="label">Why the GT replaces the knockout cup</span>
+        <p>Cycling has no elimination bracket; the authentic showpiece is the 3-week GC battle.
+        Treating it as a multi-stage race (rather than a knockout) preserves the "second,
+        marquee competition alongside the league series" role of champman's cup while staying
+        true to the sport.</p>
+      </div>
+
+      <h3>4.1 Rest Days &amp; Transfers Window</h3>
+      <p>During Grand Tour rest days and the post-Tour August window, a limited mid-season
+      transfer window opens (the real "transfer mercato" period). AI teams and the user may
+      complete a small number of signings; this is throttled separately from the main off-season window.</p>
+
+      <h2>5. Season Calendar (<code>season.js</code>)</h2>
+      <p><code>buildCalendar()</code> emits the ordered list of race weeks from authored real-race
+      metadata. Months are 4 weeks; <code>monthName(week)</code> drives Rider of the Month. The
+      default season is the real WorldTour calendar, simplified to one race per week:</p>
+      <table class="grid">
+        <thead><tr><th>Wk</th><th>Race</th><th>Kind</th><th>Pays to</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Omloop Het Nieuwsblad</td><td>classic</td><td>SPR/ROU</td></tr>
+          <tr><td>2</td><td>Strade Bianche</td><td>classic</td><td>CLM/SPR</td></tr>
+          <tr><td>3</td><td>Tirreno–Adriatico</td><td>stage (7)</td><td>all</td></tr>
+          <tr><td>4</td><td>Milan–San Remo</td><td>classic (monument)</td><td>SPR</td></tr>
+          <tr><td>5</td><td>E3 Saxo Classic</td><td>classic</td><td>SPR/ROU</td></tr>
+          <tr><td>6</td><td>Gent–Wevelgem</td><td>classic</td><td>SPR</td></tr>
+          <tr><td>7</td><td>Tour of Flanders</td><td>classic (monument)</td><td>SPR/ROU</td></tr>
+          <tr><td>8</td><td>Paris–Roubaix</td><td>classic (monument)</td><td>SPR/ROU</td></tr>
+          <tr><td>9</td><td>Itzulia Basque Country</td><td>stage (6)</td><td>CLM/LDR</td></tr>
+          <tr><td>10</td><td>Amstel Gold Race</td><td>classic</td><td>SPR/CLM</td></tr>
+          <tr><td>11</td><td>Flèche Wallonne</td><td>classic</td><td>CLM</td></tr>
+          <tr><td>12</td><td>Liège–Bastogne–Lambervelde</td><td>classic (monument)</td><td>CLM</td></tr>
+          <tr><td>13</td><td>Giro d'Italia</td><td>Grand Tour (21)</td><td>GC/CLM</td></tr>
+          <tr><td>14–15</td><td>…Giro stages…</td><td>gt-stage</td><td>—</td></tr>
+          <tr><td>16</td><td>Critérium du Dauphiné</td><td>stage (8)</td><td>LDR/CLM</td></tr>
+          <tr><td>17</td><td>Tour de Suisse</td><td>stage (8)</td><td>all</td></tr>
+          <tr><td>18</td><td>Tour de France</td><td>Grand Tour (21)</td><td>GC/all</td></tr>
+          <tr><td>19–20</td><td>…Tour stages…</td><td>gt-stage</td><td>—</td></tr>
+          <tr><td>21</td><td>Clásica San Sebastián</td><td>classic</td><td>CLM/SPR</td></tr>
+          <tr><td>22</td><td>Bretagne Classic</td><td>classic</td><td>SPR/ROU</td></tr>
+          <tr><td>23</td><td>Vuelta a España</td><td>Grand Tour (21)</td><td>GC/CLM</td></tr>
+          <tr><td>24–25</td><td>…Vuelta stages…</td><td>gt-stage</td><td>—</td></tr>
+          <tr><td>26</td><td>GP de Québec / Montréal</td><td>classic</td><td>SPR/CLM</td></tr>
+          <tr><td>27</td><td>Giro dell'Emilia</td><td>classic</td><td>CLM</td></tr>
+          <tr><td>28</td><td>Il Lombardia</td><td>classic (monument)</td><td>CLM</td></tr>
+        </tbody>
+      </table>
+      <p>Grand Tour weeks expand to consume multiple calendar slots (the "…stages…" rows); the
+      engine runs one stage per <code>advanceWeek</code> while the GT is live.</p>
+
+      <h2>6. Transfer Subsystem</h2>
+      <p>Source: <code>src/engine/transfers.js</code> (pure functions); glued to state in
+      <code>game.js</code>.</p>
+
+      <h3>6.1 Valuation</h3>
+      <table class="grid">
+        <thead><tr><th>Function</th><th>Formula / rule</th></tr></thead>
+        <tbody>
+          <tr><td><code>askingPrice(team, rider)</code></td><td><code>value × (listed?0.85:1.2) × (key rider?1.3:1)</code>, rounded to £25k. Key rider = within 3 of squad best ability.</td></tr>
+          <tr><td><code>evaluateBid(team, rider, amount)</code></td><td>≥ asking → accepted; ≥ 90% value → countered at midpoint; else rejected.</td></tr>
+          <tr><td><code>wageDemand(rider, fromTier, toTier)</code></td><td><code>max(wage×1.1, fairWage)</code>; ×1.35 to step down a tier unless offered leadership.</td></tr>
+          <tr><td><code>freeAgentWage(rider)</code></td><td><code>fairWage × 1.05</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>6.2 Rider Willingness</h3>
+      <p><code>riderAgrees(rng, rider, fromTier, toTier, offerLeadership)</code>: always agrees if
+      <code>toTier ≥ fromTier − 4</code> (lateral or upward) or if <code>offerLeadership</code> is
+      true. Otherwise reluctant, more so at peak age, capped at 85% rejection. This stops stars
+      dropping to ProTeams without friction — unless they're promised the leader's bib.</p>
+
+      <h3>6.3 Squad Protection</h3>
+      <p><code>canRelease(team, rider)</code> refuses if the roster would drop to &lt;22 riders, or
+      if releasing an LDR would leave fewer than 2. This prevents gutting a squad below viability.</p>
+
+      <h3>6.4 AI Market Behaviour</h3>
+      <ul>
+        <li><strong>Interest</strong>: <code>aiInterest(team, rider)</code> = upgrade over the team's
+        best in that role (+ thin-squad bonus). Weighted pick selects the target.</li>
+        <li><strong>Offers</strong>: <code>aiOfferAmount</code> = <code>value × (0.9..1.4)</code>.</li>
+        <li><strong>Activity</strong>: ~22% weekly chance of an AI bid for a user rider;
+        ~15% weekly chance of an AI-to-AI transfer. Listed riders attract 2.5× interest.</li>
+      </ul>
+
+      <h3>6.5 Scouting &amp; Attribute Masking</h3>
+      <p><code>Game.attrDisplay(rider, attr)</code> returns exact attributes for the user's own
+      riders and scouted riders; for everyone else it returns a stable range
+      <code>[lo, hi]</code> of half-width 8 that <em>contains the truth</em> but is offset by a
+      per-rider deterministic hash. Sorting uses <code>visibleMid()</code> so the market orders by
+      what the manager can see. A £25k scout report (1 week) flips a rider to "known exactly".</p>
+
+      <h2>7. Career Loop (<code>game.js</code>)</h2>
+
+      <h3>7.1 <code>advanceWeek(userResult)</code></h3>
+      <p>The master tick. Steps:</p>
+      <ol>
+        <li>Resolve the calendar event: classic, stage-race stage, or Grand Tour stage.</li>
+        <li>For each team's entry, <code>#resultFor</code> uses the user's live result if it's the
+        user's race, else <code>simulateRace</code> with a fresh seed from <code>rng</code>.</li>
+        <li><code>#applyRaceResult</code>: morale/form/condition/crashes, marketability drift,
+        form guide, season stats, prize money &amp; points → series standings.</li>
+        <li>If a Grand Tour is live: <code>advanceStage</code> updates GC &amp; jerseys; on the final stage, crown the GT winner + reputation deltas.</li>
+        <li><code>#weeklyUpkeep</code>: wages deducted, injuries ticked, condition recovered +16.</li>
+        <li><code>#tickInfra</code> &amp; <code>#tickScouts</code>.</li>
+        <li><code>#aiTransferActivity</code> &amp; <code>#maybeAiOfferForUserRider</code>.</li>
+        <li><code>#updateBoard</code>: confidence from series drift + result; sack if &lt; 15.</li>
+        <li><code>week++</code>; monthly awards every 4 weeks; season end if calendar exhausted.</li>
+      </ol>
+
+      <h3>7.2 Marketability Economy</h3>
+      <table class="grid">
+        <thead><tr><th>Driver</th><th>Multiplier</th></tr></thead>
+        <tbody>
+          <tr><td>Win</td><td>×1.010</td></tr>
+          <tr><td>Podium (top 3)</td><td>×1.004</td></tr>
+          <tr><td>Top 10</td><td>×1.002</td></tr>
+          <tr><td>No result</td><td>×0.997</td></tr>
+          <tr><td>GT stage win</td><td>×1.012</td></tr>
+          <tr><td>GT jersey held (per stage)</td><td>×1.003</td></tr>
+          <tr><td>Season finish (per position from 7th)</td><td>×(1 + (6.5 − pos) × 0.006)</td></tr>
+          <tr><td>Floor</td><td>200</td></tr>
+        </tbody>
+      </table>
+      <p>Annual sponsor income = <code>base(tier) × (0.6 + 0.4 × marketability/1000)</code>, renews
+      at season end; a successful season materially increases the next year's budget.</p>
+
+      <h3>7.3 Infrastructure Investment</h3>
+      <table class="grid">
+        <thead><tr><th>Parameter</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Cost per level</td><td>£500k × level</td></tr>
+          <tr><td>Build time</td><td>12 weeks</td></tr>
+          <tr><td>Max level</td><td>5</td></tr>
+          <tr><td>Performance gain</td><td>+0.4% per level to every rider's effective strength</td></tr>
+          <tr><td>AI threshold</td><td>balance ≥ 2× cost with reserve maintained</td></tr>
+        </tbody>
+      </table>
+
+      <h3>7.4 Board &amp; Job Market</h3>
+      <ul>
+        <li><strong>Confidence</strong>: drift = clamp(expectation − position, −2, +2); result
+        delta +3/0/−4. Clamped [0, 100]. &lt; 15 → sack.</li>
+        <li><strong>Sack</strong>: reputation −12; up to 2 job offers from teams with
+        <code>tier ≤ reputation + 15</code>.</li>
+        <li><strong>Poach</strong>: after a strong season, 40% chance a team with
+        <code>tier &gt; team.tier + 5</code> and <code>≤ reputation + 15</code> comes calling.</li>
+        <li><strong>Reputation deltas</strong>: GT win +20, monument win +10, series champion +8,
+        relegation −8, sack −12.</li>
+      </ul>
+
+      <h3>7.5 Season End</h3>
+      <p>A large deterministic transition. In order: final series standings; prize money;
+      marketability pull; promotion/relegation; season awards (points champion, rider of season,
+      GT winners); board verdict &amp; reputation; sack-or-poach check; rider development &amp;
+      retirements; contract expiries (user must renew deliberately; AI retains 70%); neo-pro
+      intake to ≥22; AI infrastructure; expectation re-ranking by squad strength; calendar &amp;
+      Grand Tour reset; <code>seasonIndex++</code>.</p>
+
+      <h2>8. Configuration Constants</h2>
+      <p>Centralised in <code>game.js</code> and <code>race.js</code> for tuning:</p>
+      <table class="grid">
+        <thead><tr><th>Constant</th><th>Value</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>RACE_TEAM_SIZE</code></td><td>8</td><td>Riders per race team</td></tr>
+          <tr><td><code>MAX_BENCH</code></td><td>4</td><td>Reserves travelable</td></tr>
+          <tr><td><code>MAX_LEADERS</code></td><td>2</td><td>LDR per race team</td></tr>
+          <tr><td><code>BASE_BREAK_PROB</code></td><td>0.18</td><td>Base breakaway formation chance/sector</td></tr>
+          <tr><td><code>CHASE_EFFICIENCY</code></td><td>0.85</td><td>Peloton catch power vs a break</td></tr>
+          <tr><td><code>CRASH_PROB</code></td><td>0.0016</td><td>Per rider per segment crash chance</td></tr>
+          <tr><td><code>SACK_THRESHOLD</code></td><td>15</td><td>Board confidence sack floor</td></tr>
+          <tr><td><code>SCOUT_FEE</code></td><td>£25,000</td><td>Per scout report</td></tr>
+          <tr><td><code>MASK_HALF_WIDTH</code></td><td>8</td><td>Attribute estimate range</td></tr>
+          <tr><td><code>INFRA_COST_PER_LEVEL</code></td><td>£500k × level</td><td>Infrastructure build cost</td></tr>
+          <tr><td><code>SAVE_VERSION</code></td><td>1</td><td>Persistence schema version</td></tr>
+          <tr><td><code>RETIREMENT_AGE</code></td><td>36</td><td>55% retire chance at/above</td></tr>
+        </tbody>
+      </table>
+
+      <p style="margin-top:30px"><a href="03-data-model.html">← 03 · Data Model</a> · <a href="05-ui-design.html">Next: 05 · UI Design →</a></p>
+    </article>
+  </main>
+
+  <footer>Pelotonman design documentation · 04 · Engine Specs</footer>
+</body>
+</html>

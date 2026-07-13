@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>02 · Architecture — Pelotonman Design</title>
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">🚴 PELOTONMAN</span>
+    <span class="crumb"><a href="index.html">Design</a> › 02 · Architecture</span>
+    <span class="spacer"></span>
+    <span class="meta">SAD · v0.1</span>
+  </header>
+
+  <main class="wrap">
+    <nav class="side-nav">
+      <h3>Overview</h3>
+      <a href="index.html">Home</a>
+      <a href="01-requirements.html">01 · Requirements</a>
+      <h3>Design</h3>
+      <a href="02-architecture.html" class="active">02 · Architecture</a>
+      <a href="03-data-model.html">03 · Data Model</a>
+      <a href="04-engine-specs.html">04 · Engine Specs</a>
+      <a href="05-ui-design.html">05 · UI Design</a>
+      <h3>Delivery</h3>
+      <a href="06-test-plan.html">06 · Test Plan</a>
+    </nav>
+
+    <article class="doc">
+      <h1>02 · System Architecture</h1>
+      <p class="subtitle">Software Architecture Description (SAD)</p>
+
+      <h2>1. Architectural Style</h2>
+      <p>Pelotonman is a <strong>layered, engine-first single-page application</strong> with a
+      strict separation between pure game logic and imperative UI. The design rests on
+      three principles, identical in spirit to its football sibling:</p>
+      <ol>
+        <li><strong>Engine purity.</strong> Every module under <code>src/engine/</code> is a
+        pure ES module with no DOM access and no framework. It runs identically in the
+        browser and in Node, which is what makes the test suite possible without a
+        DOM shim.</li>
+        <li><strong>Single source of randomness.</strong> One seeded mulberry32 RNG instance
+        threads through the entire career. Determinism is a first-class architectural
+        property, not an afterthought.</li>
+        <li><strong>UI as a thin client.</strong> <code>js/app.js</code> only renders state
+        produced by the engine and forwards user gestures back to engine methods. It owns
+        no game rules.</li>
+      </ol>
+
+      <div class="callout blue">
+        <span class="label">Key difference from champman</span>
+        <p>Champman generated fictional squads deterministically from a club-name hash.
+        Pelotonman ships <strong>real, hand-authored rosters</strong> for all 24 teams
+        (real rider names, real roles). The data module is therefore larger and is
+        treated as a versioned data asset rather than a generator. Determinism still holds
+        for everything <em>after</em> the initial world load — race outcomes, AI behaviour,
+        development, transfers — because that is where the RNG is consumed.</p>
+      </div>
+
+      <h2>2. Layer Diagram</h2>
+      <div class="diagram">
+<pre>
+┌──────────────────────────────────────────────────────────────────┐
+│                        BROWSER (DOM)                             │
+│  index.html · css/style.css                                      │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │  js/app.js   — UI controller                                │  │
+│  │  • start screen · hub shell · race day                      │  │
+│  │  • renders engine state · paces the race timer              │  │
+│  │  • localStorage save/load orchestration                     │  │
+│  └───────────────┬──────────────────────────────┬─────────────┘  │
+│          reads / renders                forwards gestures        │
+└──────────────────┼──────────────────────────────┼────────────────┘
+                   ▼                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                  ENGINE LAYER (pure ES modules)                  │
+│                                                                  │
+│   ┌──────────────────────────────────────────────────────────┐   │
+│   │  game.js  — Game class (career orchestrator)              │   │
+│   │  weeks · sponsorship · board · news · awards · scouting   │   │
+│   │  infrastructure · job market · transfers glue · save      │   │
+│   └──┬───────┬────────┬────────┬─────────┬──────────┬────────┘   │
+│      │       │        │        │         │          │            │
+│      ▼       ▼        ▼        ▼         ▼          ▼            │
+│  ┌───────┐┌──────┐┌──────┐┌────────┐┌────────┐┌──────────┐      │
+│  │race   ││season││ gt   ││ series ││transfers││ riders   │      │
+│  │ .js   ││ .js  ││ .js  ││  .js   ││  .js   ││  .js     │      │
+│  └───┬───┘└──────┘└──────┘└────────┘└────────┘└────┬─────┘      │
+│      │            ┌──────────┐                      │            │
+│      └────────────│ squad.js │◄─────────────────────┘            │
+│                   │ race plans│                                  │
+│                   │ selectRace│                                  │
+│                   └─────┬────┘                                  │
+│                         │                                        │
+│                         ▼                                        │
+│                   ┌───────────┐                                  │
+│                   │  rng.js   │  seeded mulberry32               │
+│                   │ (single   │  serializable state              │
+│                   │  source)  │                                  │
+│                   └───────────┘                                  │
+└──────────────────────────────────────────────────────────────────┘
+                  ▲
+          ┌────────────────┐
+          │ src/data/      │  24 real teams, hand-authored
+          │  teams.js      │  real rosters (rider names)
+          └────────────────┘
+</pre>
+      </div>
+
+      <h2>3. Module Catalogue</h2>
+      <table class="grid">
+        <thead><tr><th>Module</th><th>Responsibility</th><th>Exports</th></tr></thead>
+        <tbody>
+          <tr><td><code>rng.js</code></td><td>Seeded PRNG + string hashing</td><td><code>createRng</code>, <code>hashString</code></td></tr>
+          <tr><td><code>riders.js</code></td><td>Rider creation, valuation, development</td><td><code>createRider</code>, <code>ability</code>, <code>fairValue</code>, <code>developRider</code>, <code>isAvailable</code></td></tr>
+          <tr><td><code>squad.js</code></td><td>Race plans, race-team selection, ratings, validation</td><td><code>RACE_PLANS</code>, <code>AGGRESSIONS</code>, <code>selectRaceTeam</code>, <code>validateTeam</code>, <code>teamRatings</code>, <code>overallRating</code></td></tr>
+          <tr><td><code>race.js</code></td><td>Resumable km-by-km race simulation (peloton, breaks, climbs, sprint, ITT)</td><td><code>RaceSim</code>, <code>simulateRace</code></td></tr>
+          <tr><td><code>series.js</code></td><td>Season points series standings across the calendar</td><td><code>computeStandings</code>, <code>awardPoints</code></td></tr>
+          <tr><td><code>gt.js</code></td><td>Grand Tour: multi-stage GC, jerseys, stage sequencing</td><td><code>createGrandTour</code>, <code>advanceStage</code>, <code>jerseyHolders</code></td></tr>
+          <tr><td><code>season.js</code></td><td>Calendar of real races (classics, stage races, Grand Tours)</td><td><code>buildCalendar</code>, <code>monthName</code></td></tr>
+          <tr><td><code>transfers.js</code></td><td>Valuations, negotiation, AI interest</td><td><code>askingPrice</code>, <code>evaluateBid</code>, <code>wageDemand</code>, <code>aiInterest</code></td></tr>
+          <tr><td><code>game.js</code></td><td>Career orchestrator &amp; state owner</td><td><code>Game</code> class</td></tr>
+          <tr><td><code>teams.js</code> (data)</td><td>24 real teams + real rosters (versioned data asset)</td><td><code>TEAMS</code>, <code>buildTeams</code>, <code>teamFinances</code></td></tr>
+          <tr><td><code>app.js</code> (UI)</td><td>UI controller</td><td>— (side-effect on import)</td></tr>
+        </tbody>
+      </table>
+
+      <h2>4. Dependency Rules</h2>
+      <ul>
+        <li>The dependency graph is a <strong>DAG with rng.js as the root</strong>. No cycles.</li>
+        <li><code>game.js</code> depends on every engine module; it is the only module that composes the subsystems.</li>
+        <li><code>race.js</code> depends only on <code>rng.js</code> and <code>squad.js</code> — it knows nothing about seasons, finances, or transfers.</li>
+        <li><code>gt.js</code> depends on <code>race.js</code> (a Grand Tour is a sequence of races) and <code>series.js</code> (for jersey points accumulation).</li>
+        <li><code>app.js</code> imports <code>Game</code> and a few helpers (<code>teamRatings</code>, <code>overallRating</code>, <code>ability</code>) for display; it never imports <code>race.js</code> directly.</li>
+        <li>The data module <code>teams.js</code> depends on <code>riders.js</code> only (to build rider records from the authored rosters).</li>
+      </ul>
+
+      <h2>5. The Determinism Contract</h2>
+      <p>Determinism is enforced by three rules that every engine author must obey:</p>
+      <div class="callout gold">
+        <span class="label">Rule 1 — One RNG</span>
+        <p>All randomness flows through a <code>createRng(seed)</code> instance. <code>Math.random()</code>
+        appears only to generate a seed when none is supplied. The career's RNG lives on
+        <code>game.rng</code> and its state is serialized with the save.</p>
+      </div>
+      <div class="callout gold">
+        <span class="label">Rule 2 — Serializable state</span>
+        <p>The RNG exposes <code>getState()</code> / <code>setState()</code>. <code>Game.serialize()</code>
+        captures <code>rngState</code> alongside all team/world state; <code>Game.restore()</code>
+        reconstructs the instance and re-injects the RNG state, so a resumed career draws the
+        same future random numbers as the original.</p>
+      </div>
+      <div class="callout gold">
+        <span class="label">Rule 3 — No hidden mutation</span>
+        <p>The race engine <em>never mutates</em> the rider objects it is given; per-race state
+        lives in <code>StatLine</code> objects keyed by rider id. This keeps the squad objects
+        stable across the sim and the UI.</p>
+      </div>
+      <div class="callout">
+        <span class="label">Initial world is deterministic by data, not RNG</span>
+        <p>Because rosters are authored (real names), the initial world consumes no RNG draws.
+        The first RNG consumption is the first AI/uncertain event after the career starts
+        (e.g. the first simulated race). This makes the world load instant and reproducible.</p>
+      </div>
+
+      <h2>6. Control Flow — The Race-Week Loop</h2>
+      <p>The heartbeat of the career is <code>Game.advanceWeek()</code>. Every "Continue" click
+      either routes the user into a live race or, if there is no user race entry, runs the week
+      headlessly. The diagram shows the sequence.</p>
+      <div class="diagram">
+<pre>
+User clicks "Continue ▸"
+        │
+        ▼
+  Game.userRace()? ────── no ──► Game.advanceWeek(null)  [auto-sim user's race]
+        │ yes                          │
+        ▼                              ▼
+  show pre-race screen          sim all races on the calendar week
+        │                         (one-day classic / stage-race stage / GT stage)
+        ▼                         apply results → morale/form/condition/crashes
+  roll out → RaceSim            prize money + points → series standings
+  (live, km-by-km)              GT jersey updates if a GT week
+        │                         weekly upkeep (wages, condition recovery, injury tick)
+        ▼                         infrastructure build tick
+  race finish → advanceWeek(res) scout report tick
+        │                         AI transfer activity + maybe AI offer for user rider
+        ▼                         board confidence update → maybe sack
+  saveGame()                      week++ ; monthly awards? ; season end?
+        │
+        ▼
+  render week summary
+</pre>
+      </div>
+
+      <h2>7. Race Engine Internals</h2>
+      <p><code>RaceSim</code> is a stateful object exposing <code>playSegment()</code> (returns the
+      events generated that segment), <code>setOrders()</code>, <code>setRacePlan()</code>, and
+      <code>finish()</code>. Internally each segment (typically 5–10 km, finer near key points):</p>
+      <ol>
+        <li>Runs AI race-plan policy (defend GC / chase break / set up sprinter) and AI orders for all teams.</li>
+        <li>Resolves the peloton pace from the controlling teams' orders and the road profile (climb sector flattens pace).</li>
+        <li>Evaluates breakaway formation and catch: a break's survival is a function of gap, headwind, terrain, and chase intensity.</li>
+        <li>Generates quiet domestique work (pulls) that feed the live ratings and burn condition.</li>
+        <li>Resolves crashes &amp; mechanicals (weighted by <code>injuryProne</code> and dense sections); dropped riders lose time or abandon.</li>
+        <li>On a climb sector: re-groups by climbing strength, time gaps open, KOM points awarded at the summit.</li>
+        <li>On the final sector: resolves the sprint (SPR-led) or summit finish (CLM/LDR) and assigns placings + time gaps + points.</li>
+        <li>Decays condition for every rider who pulled or chased.</li>
+        <li>Pushes a timeline snapshot and checks for stage/race end.</li>
+      </ol>
+      <p>The strength model is role- and profile-aware: a climber's <code>climb</code> dominates on
+      Cat-1 ascents; a sprinter's <code>power</code> dominates in the final 500 m of a flat stage;
+      a time trialist (high <code>power</code>, high consistency) dominates an ITT. Domestique
+      contributions are pooled per-team and applied as pace modulation, so a full sprint train
+      genuinely delivers a sprinter to the line fresher than a lone sprinter.</p>
+
+      <h2>8. Persistence Model</h2>
+      <p>Saves are a single JSON blob in <code>localStorage['pelotonman-save']</code>. The shape is
+      a flat snapshot of the <code>Game</code> instance minus the RNG object (whose state is
+      stored separately as <code>rngState</code>).</p>
+      <pre><code>{
+  version: 1,
+  managerName, teamName,
+  rngState,                 // ← the determinism key
+  teams: [...],             // full world state
+  freeAgents, seasonIndex, week, calendar,
+  results,                  // one-day + stage-race results
+  grandTours: { giro, tour, vuelta },   // live GT state
+  seriesStandings, seasonStats, monthly, inbox,
+  pendingOffers, nextOfferId,
+  board, racePlan, history, youthSeq,
+  sacked, reputation, jobOffers, pendingJobOffer,
+  scouted, pendingScouts
+}</code></pre>
+      <p>Restore constructs a throwaway <code>Game</code> and then <code>Object.assign</code>s the
+      saved fields over it before re-injecting the RNG state. A version mismatch throws,
+      refusing to load incompatible saves.</p>
+
+      <h2>9. Deployment &amp; Runtime Topology</h2>
+      <table class="grid">
+        <thead><tr><th>Aspect</th><th>Choice</th><th>Rationale</th></tr></thead>
+        <tbody>
+          <tr><td>Serving</td><td>Any static server (<code>python3 -m http.server</code>)</td><td>No build, no bundler, no SSR</td></tr>
+          <tr><td>Module loading</td><td>Native ES modules in the browser</td><td><code>&lt;script type="module"&gt;</code> loads <code>js/app.js</code>, which imports the engine</td></tr>
+          <tr><td>State store</td><td><code>localStorage</code></td><td>Zero infrastructure; survives reloads</td></tr>
+          <tr><td>Testing runtime</td><td>Node <code>--test</code></td><td>Engine modules import directly with no DOM</td></tr>
+          <tr><td>E2E runtime</td><td>puppeteer-core + a real Chromium</td><td>Drives the actual UI in a real browser</td></tr>
+        </tbody>
+      </table>
+
+      <h2>10. Architectural Decisions (ADR-style)</h2>
+      <table class="grid">
+        <thead><tr><th>Decision</th><th>Chosen</th><th>Rejected alternative</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Engine/UI split</td><td>Pure modules + thin UI</td><td>Framework component tree</td><td>Testability &amp; determinism; no framework lock-in</td></tr>
+          <tr><td>Build step</td><td>None</td><td>Webpack/Vite bundler</td><td>Fewer moving parts; instant iteration; matches retro scope</td></tr>
+          <tr><td>Race model</td><td>Stateful resumable object</td><td>Pure <code>simulate(teams)→result</code></td><td>Live pause/orders/plans need mutable mid-race state</td></tr>
+          <tr><td>RNG</td><td>mulberry32, single instance</td><td>Per-module RNGs or <code>Math.random</code></td><td>Replayable careers; serializable state</td></tr>
+          <tr><td>Save format</td><td>Flat JSON snapshot</td><td>Event log / delta store</td><td>Simplicity; small enough for localStorage</td></tr>
+          <tr><td>Squad data</td><td>Authored real rosters</td><td>Generated from team-name hash</td><td>Real names are a core requirement; data is a versioned asset</td></tr>
+          <tr><td>Cup → Grand Tour</td><td>Multi-stage GC battle</td><td>Knockout bracket</td><td>Cycling has no knockout; the GT is the authentic showpiece</td></tr>
+          <tr><td>Cards/bans</td><td>Crashes &amp; mechanicals only</td><td>Yellow/red cards + suspensions</td><td>Cycling has no cards; crashes/mechanicals are the real adversity</td></tr>
+        </tbody>
+      </table>
+
+      <p style="margin-top:30px"><a href="01-requirements.html">← 01 · Requirements</a> · <a href="03-data-model.html">Next: 03 · Data Model →</a></p>
+    </article>
+  </main>
+
+  <footer>Pelotonman design documentation · 02 · Architecture</footer>
+</body>
+</html>

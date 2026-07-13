@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>03 · Data Model — Pelotonman Design</title>
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">🚴 PELOTONMAN</span>
+    <span class="crumb"><a href="index.html">Design</a> › 03 · Data Model</span>
+    <span class="spacer"></span>
+    <span class="meta">DDM · v0.1</span>
+  </header>
+
+  <main class="wrap">
+    <nav class="side-nav">
+      <h3>Overview</h3>
+      <a href="index.html">Home</a>
+      <a href="01-requirements.html">01 · Requirements</a>
+      <h3>Design</h3>
+      <a href="02-architecture.html">02 · Architecture</a>
+      <a href="03-data-model.html" class="active">03 · Data Model</a>
+      <a href="04-engine-specs.html">04 · Engine Specs</a>
+      <a href="05-ui-design.html">05 · UI Design</a>
+      <h3>Delivery</h3>
+      <a href="06-test-plan.html">06 · Test Plan</a>
+    </nav>
+
+    <article class="doc">
+      <h1>03 · Data Model</h1>
+      <p class="subtitle">Domain entities, attributes, and relationships</p>
+
+      <h2>1. Entity Relationship Overview</h2>
+      <div class="diagram">
+<pre>
+                ┌────────────────────────────────┐
+                │         Game (career)          │
+                │  managerName, teamName         │
+                │  seasonIndex, week             │
+                │  rngState, version             │
+                │  board, racePlan               │
+                │  reputation, sacked            │
+                └──┬────────┬───────────┬───────┘
+                   │1       │1           │1
+          ┌────────┘        │            └────────────┐
+          │ *               │ *                       │ *
+          ▼                 ▼                         ▼
+    ┌──────────┐      ┌───────────┐            ┌────────────┐
+    │  Team    │1────*│  Rider    │            │  InboxItem │
+    │  (24)    │      │  (~26/td) │            │  (≤120)    │
+    └────┬─────┘      └─────┬─────┘            └────────────┘
+         │ *                │1
+         │                  │ *
+   ┌─────┴────┐       ┌─────┴──────────┐
+   │  Race    │       │  SeasonStats   │
+   │  on cal. │       │  per rider     │
+   └────┬─────┘       └────────────────┘
+        │ *
+   ┌────┴──────────────────────────┐
+   │        GrandTour              │
+   │  stages[], jerseys, GC        │
+   └───────────────────────────────┘
+</pre>
+      </div>
+      <p>The model is deliberately <strong>flat</strong>: there are no relational joins or ORMs.
+      A <code>Game</code> instance owns arrays of <code>Team</code> objects, each owning an array
+      of <code>Rider</code> objects. Everything serialises to JSON by walking these arrays.</p>
+
+      <h2>2. Game (Career State)</h2>
+      <p>The root aggregate. One per save. Owned by the <code>Game</code> class in
+      <code>game.js</code>.</p>
+      <table class="grid">
+        <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>version</code></td><td>number</td><td>Save-format version; currently <code>1</code>. Mismatch refuses load.</td></tr>
+          <tr><td><code>managerName</code></td><td>string</td><td>Free text, max 30 chars at entry.</td></tr>
+          <tr><td><code>teamName</code></td><td>string</td><td>The human team's name; key into <code>teams</code>.</td></tr>
+          <tr><td><code>rngState</code></td><td>number (u32)</td><td>Serialized RNG state — the determinism key.</td></tr>
+          <tr><td><code>teams</code></td><td>Team[]</td><td>All 24 teams, including the human one.</td></tr>
+          <tr><td><code>freeAgents</code></td><td>Rider[]</td><td>Released/retired-replaced riders; capped at 60.</td></tr>
+          <tr><td><code>seasonIndex</code></td><td>number</td><td>0-based season counter.</td></tr>
+          <tr><td><code>week</code></td><td>number</td><td>0-based week within the current season's calendar.</td></tr>
+          <tr><td><code>calendar</code></td><td>CalendarEntry[]</td><td><code>{type:'classic'|'stage'|'gt', raceId, stage?}</code></td></tr>
+          <tr><td><code>results</code></td><td>RaceResult[]</td><td>Accumulated one-day &amp; stage-race results this season.</td></tr>
+          <tr><td><code>grandTours</code></td><td>{giro, tour, vuelta}</td><td>Live GrandTour states (null before their start week).</td></tr>
+          <tr><td><code>seriesStandings</code></td><td>Standing[]</td><td>Season points series table across all races.</td></tr>
+          <tr><td><code>seasonStats</code></td><td>Map&lt;id,SeasonStats&gt;</td><td>Aggregated per-rider season totals.</td></tr>
+          <tr><td><code>monthly</code></td><td>Map&lt;id,{sum,n}&gt;</td><td>Rolling rating accumulator for Rider of the Month.</td></tr>
+          <tr><td><code>inbox</code></td><td>InboxItem[]</td><td>News, newest first, capped at 120.</td></tr>
+          <tr><td><code>pendingOffers</code></td><td>Offer[]</td><td>AI bids for the user's riders awaiting a decision.</td></tr>
+          <tr><td><code>board</code></td><td>{confidence}</td><td>0–100; below 15 triggers sacking.</td></tr>
+          <tr><td><code>racePlan</code></td><td>{plan,aggression}</td><td>The user's default approach.</td></tr>
+          <tr><td><code>history</code></td><td>SeasonHistory[]</td><td>One entry per completed season.</td></tr>
+          <tr><td><code>reputation</code></td><td>number</td><td>5–100 managerial standing.</td></tr>
+          <tr><td><code>sacked</code></td><td>boolean</td><td>True when the human is between jobs.</td></tr>
+          <tr><td><code>jobOffers</code></td><td>string[]</td><td>Post-sack reachable team names.</td></tr>
+          <tr><td><code>pendingJobOffer</code></td><td>{team,season}|null</td><td>A poach offer from a bigger team.</td></tr>
+          <tr><td><code>scouted</code></td><td>Map&lt;id,true&gt;</td><td>Riders whose attributes are fully known.</td></tr>
+          <tr><td><code>pendingScouts</code></td><td>{riderId,weeksLeft}[]</td><td>Scout reports in flight.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>3. Team</h2>
+      <p>Defined in <code>src/data/teams.js</code>; mutated through the career by <code>game.js</code>.
+      The 24 teams use real names; the table below lists them all.</p>
+      <table class="grid">
+        <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>name</code></td><td>string</td><td>Unique; used as the primary key everywhere.</td></tr>
+          <tr><td><code>shortName</code></td><td>string</td><td>3-letter code (e.g. <code>UAE</code>) for tight UI.</td></tr>
+          <tr><td><code>tier</code></td><td>number</td><td>40–92; drives roster quality and starting finances.</td></tr>
+          <tr><td><code>ucCode</code></td><td>string</td><td>Real UCI code (e.g. <code>UAD</code> for UAE).</td></tr>
+          <tr><td><code>capacity</code></td><td>number</td><td>Max roster size (typically 28–30); gate on signing.</td></tr>
+          <tr><td><code>expectation</code></td><td>number</td><td>1-based target series standing in its division.</td></tr>
+          <tr><td><code>division</code></td><td>1 | 2</td><td>WorldTour / ProTeam; changed by promotion/relegation.</td></tr>
+          <tr><td><code>marketability</code></td><td>number</td><td>Supporter following / commercial pull. Floor 200.</td></tr>
+          <tr><td><code>lastExposure</code></td><td>number</td><td>Most recent race TV exposure score.</td></tr>
+          <tr><td><code>exposureSum/N</code></td><td>number</td><td>Season averages; reset each season.</td></tr>
+          <tr><td><code>infraLevel</code></td><td>1–5</td><td>Infrastructure tier; gives marginal performance gain.</td></tr>
+          <tr><td><code>infraBuild</code></td><td>{level,weeksLeft}|null</td><td>Active build, or null.</td></tr>
+          <tr><td><code>formGuide</code></td><td>('W'|'T'|'L')[]</td><td>Last 5 race results (win/podium/no-result), newest last.</td></tr>
+          <tr><td><code>balance</code></td><td>number</td><td>Cash on hand.</td></tr>
+          <tr><td><code>transferBudget</code></td><td>number</td><td>Ring-fenced spendable transfer pot.</td></tr>
+          <tr><td><code>riders</code></td><td>Rider[]</td><td>~26 at season start; refilled to ≥22.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>3.1 The 24 Real Teams</h3>
+      <table class="grid">
+        <thead><tr><th>#</th><th>Team</th><th>UCI</th><th>Div</th><th>Tier</th><th>Headline rider</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>UAE Team Emirates</td><td>UAD</td><td>1</td><td>92</td><td>Tadej Pogačar (LDR)</td></tr>
+          <tr><td>2</td><td>Visma | Lease a Bike</td><td>TVM</td><td>1</td><td>90</td><td>Jonas Vingegaard (LDR)</td></tr>
+          <tr><td>3</td><td>Red Bull–Bora–Hansgrohe</td><td>RBB</td><td>1</td><td>87</td><td>Primož Rogliča (LDR)</td></tr>
+          <tr><td>4</td><td>Soudal–Quick-Step</td><td>SQS</td><td>1</td><td>86</td><td>Remco Evenepoel (LDR)</td></tr>
+          <tr><td>5</td><td>INEOS Grenadiers</td><td>IGD</td><td>1</td><td>85</td><td>Tom Pidcock (LDR)</td></tr>
+          <tr><td>6</td><td>Alpecin–Deceuninck</td><td>ADC</td><td>1</td><td>82</td><td>Mathieu van der Poel (SPR)</td></tr>
+          <tr><td>7</td><td>Lidl–Trek</td><td>TWG</td><td>1</td><td>80</td><td>Mads Pedersen (SPR)</td></tr>
+          <tr><td>8</td><td>Movistar Team</td><td>MOV</td><td>1</td><td>78</td><td>Enric Mas (LDR)</td></tr>
+          <tr><td>9</td><td>EF Education–EasyPost</td><td>EFE</td><td>1</td><td>77</td><td>Richard Carapaz (LDR)</td></tr>
+          <tr><td>10</td><td>Bahrain Victorious</td><td>TBV</td><td>1</td><td>76</td><td>Matej Mohorič (SPR)</td></tr>
+          <tr><td>11</td><td>Groupama–FDJ</td><td>GFC</td><td>1</td><td>74</td><td>David Gaudu (LDR)</td></tr>
+          <tr><td>12</td><td>Decathlon–AG2R</td><td>DAG</td><td>1</td><td>72</td><td>Ben O'Connor (LDR)</td></tr>
+          <tr><td>13</td><td>Cofidis</td><td>COF</td><td>2</td><td>66</td><td>Iván García Cortina (SPR)</td></tr>
+          <tr><td>14</td><td>Israel–Premier Tech</td><td>IPT</td><td>2</td><td>64</td><td>Derek Gee (LDR)</td></tr>
+          <tr><td>15</td><td>Uno-X Mobility</td><td>UXM</td><td>2</td><td>63</td><td>Magnus Cort (SPR)</td></tr>
+          <tr><td>16</td><td>Tud Pro Cycling</td><td>TUD</td><td>2</td><td>62</td><td>Marc Hirschi (SPR)</td></tr>
+          <tr><td>17</td><td>Q36.5 Pro Cycling</td><td>Q36</td><td>2</td><td>61</td><td>Gianni Moscon (ROU)</td></tr>
+          <tr><td>18</td><td>Team Jayco AlUla</td><td>JAY</td><td>2</td><td>60</td><td>Luke Plapp (LDR)</td></tr>
+          <tr><td>19</td><td>Lotto Dstny</td><td>LTD</td><td>2</td><td>58</td><td>Arnaud De Lie (SPR)</td></tr>
+          <tr><td>20</td><td>Picnic–PostNL</td><td>PIC</td><td>2</td><td>57</td><td>Oscar Onley (LDR)</td></tr>
+          <tr><td>21</td><td>Astana Qazaqstan</td><td>AST</td><td>2</td><td>56</td><td>Mark Cavendish (SPR)</td></tr>
+          <tr><td>22</td><td>dsm–firmenich PostNL</td><td>DSM</td><td>2</td><td>55</td><td>Romain Bardet (LDR)</td></tr>
+          <tr><td>23</td><td>Burgos-BH</td><td>BBH</td><td>2</td><td>52</td><td>Jon Barrenetxea (SPR)</td></tr>
+          <tr><td>24</td><td>Kern Pharma</td><td>KPH</td><td>2</td><td>50</td><td>Pablo Castrillo (LDR)</td></tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        <span class="label">Derived finance</span>
+        <p><code>teamFinances(tier)</code> sets starting <code>balance = (tier/10)^3.4 × 12000</code>
+        and <code>transferBudget = 50% of balance</code>, rounded to the nearest £50k / £25k.
+        So a tier-92 super-team starts with tens of millions; a tier-50 ProTeam with a few hundred thousand.</p>
+      </div>
+
+      <h2>4. Rider</h2>
+      <p>The richest entity. Created by <code>createRider()</code> from authored roster rows;
+      developed yearly by <code>developRider()</code>.</p>
+      <table class="grid">
+        <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td><code>id</code></td><td>string</td><td><code>&lt;UCICODE&gt;-&lt;index&gt;</code> or <code>&lt;UCICODE&gt;-Y&lt;n&gt;</code> for neo-pros.</td></tr>
+          <tr><td><code>name</code></td><td>string</td><td>Real rider name; unique within a team.</td></tr>
+          <tr><td><code>type</code></td><td>'LDR'|'SPR'|'CLM'|'ROU'</td><td>Natural role. LDR = protected leader (≤2 per race team).</td></tr>
+          <tr><td><code>power</code>, <code>climb</code></td><td>1–99</td><td>Headline attributes. power drives flat/sprint/ITT; climb drives mountains.</td></tr>
+          <tr><td><code>tt</code></td><td>1–99</td><td>Time-trial rating; derived <code>0.6·power + 0.4·consistency</code> if absent.</td></tr>
+          <tr><td><code>age</code></td><td>number</td><td>18–36 at creation; increments each season.</td></tr>
+          <tr><td><code>consistency</code></td><td>1–99</td><td><strong>Hidden.</strong> Widens per-race variance.</td></tr>
+          <tr><td><code>injuryProne</code></td><td>1–99</td><td><strong>Hidden.</strong> Weights crash victim selection.</td></tr>
+          <tr><td><code>wage</code></td><td>number</td><td>Annual £; <code>fairWage = (ability/10)^3.1 × 16</code>.</td></tr>
+          <tr><td><code>value</code></td><td>number</td><td>£; <code>(ability/10)^4.3 × 950 × ageFactor</code>, floor £25k.</td></tr>
+          <tr><td><code>contractYears</code></td><td>number</td><td>Decrements yearly; 0 → free agent unless renewed.</td></tr>
+          <tr><td><code>condition</code></td><td>20–100</td><td>Decays in races, recovers ~16/week.</td></tr>
+          <tr><td><code>form</code></td><td>number</td><td>Rolling 6.0 baseline; 0.4-weighted recent rating.</td></tr>
+          <tr><td><code>morale</code></td><td>20–99</td><td>±8 win, +1 podium, −6 dropped/abandon.</td></tr>
+          <tr><td><code>injuryWeeks</code></td><td>number</td><td>Crash/mechanical recovery; ticked down weekly.</td></tr>
+          <tr><td><code>abandonedRace</code></td><td>string|null</td><td>Race id a rider DNF'd this stage race (excludes them from later stages).</td></tr>
+          <tr><td><code>listed</code></td><td>boolean</td><td>Transfer-listed; cheaper to buy, more AI interest.</td></tr>
+        </tbody>
+      </table>
+      <div class="callout gold">
+        <span class="label">Ability &amp; valuation</span>
+        <p><code>ability(rider)</code> is the headline number: SPR <code>0.85·power + 0.15·climb</code>,
+        CLM <code>0.85·climb + 0.15·power</code>, LDR <code>0.55·power + 0.45·climb</code>, ROU
+        <code>0.6·power + 0.4·climb</code>. It drives wages, values, AI interest, and race-team
+        selection. <code>ageFactor</code> ramps 0.75 → 1.0 across the peak window (24–28) then
+        fades 0.12/year, so a 34-year-old star is worth far less than a 26-year-old of identical
+        ability.</p>
+      </div>
+
+      <h3>4.1 Example Real Rosters (excerpt)</h3>
+      <p>Full rosters live in <code>src/data/teams.js</code>. A representative excerpt shows the
+      authored shape; attributes are game-tuned, not real-world.</p>
+      <table class="grid">
+        <thead><tr><th>Team</th><th>Rider</th><th>Role</th><th>Age</th><th>Pwr</th><th>Clm</th><th>Abil.</th></tr></thead>
+        <tbody>
+          <tr><td>UAE Team Emirates</td><td>Tadej Pogačar</td><td>LDR</td><td>26</td><td>88</td><td>93</td><td>90</td></tr>
+          <tr><td>UAE Team Emirates</td><td>Adam Yates</td><td>LDR</td><td>32</td><td>80</td><td>84</td><td>82</td></tr>
+          <tr><td>UAE Team Emirates</td><td>João Almeida</td><td>LDR</td><td>26</td><td>82</td><td>85</td><td>83</td></tr>
+          <tr><td>UAE Team Emirates</td><td>Juan Ayuso</td><td>LDR</td><td>22</td><td>80</td><td>86</td><td>83</td></tr>
+          <tr><td>UAE Team Emirates</td><td>Tim Merlier</td><td>SPR</td><td>32</td><td>89</td><td>52</td><td>83</td></tr>
+          <tr><td>UAE Team Emirates</td><td>Mikkel Bjerg</td><td>ROU</td><td>25</td><td>80</td><td>62</td><td>73</td></tr>
+          <tr><td>UAE Team Emirates</td><td>Brandon McNulty</td><td>ROU</td><td>26</td><td>82</td><td>66</td><td>75</td></tr>
+          <tr><td>Visma | Lease a Bike</td><td>Jonas Vingegaard</td><td>LDR</td><td>28</td><td>84</td><td>94</td><td>89</td></tr>
+          <tr><td>Visma | Lease a Bike</td><td>Wout van Aert</td><td>SPR</td><td>30</td><td>90</td><td>78</td><td>87</td></tr>
+          <tr><td>Visma | Lease a Bike</td><td>Matteo Jorgenson</td><td>LDR</td><td>24</td><td>78</td><td>80</td><td>79</td></tr>
+          <tr><td>Visma | Lease a Bike</td><td>Christophe Laporte</td><td>ROU</td><td>31</td><td>80</td><td>70</td><td>74</td></tr>
+          <tr><td>Visma | Lease a Bike</td><td>Olav Kooij</td><td>SPR</td><td>22</td><td>84</td><td>50</td><td>78</td></tr>
+          <tr><td>Visma | Lease a Bike</td><td>Tiesj Benoot</td><td>ROU</td><td>30</td><td>74</td><td>72</td><td>73</td></tr>
+          <tr><td>Soudal–Quick-Step</td><td>Remco Evenepoel</td><td>LDR</td><td>24</td><td>86</td><td>90</td><td>88</td></tr>
+          <tr><td>Soudal–Quick-Step</td><td>Julian Alaphilippe</td><td>SPR</td><td>32</td><td>82</td><td>78</td><td>81</td></tr>
+          <tr><td>Soudal–Quick-Step</td><td>Kasper Asgreen</td><td>ROU</td><td>30</td><td>80</td><td>72</td><td>76</td></tr>
+          <tr><td>Soudal–Quick-Step</td><td>Fabio Jakobsen</td><td>SPR</td><td>28</td><td>86</td><td>48</td><td>80</td></tr>
+          <tr><td>Soudal–Quick-Step</td><td>Tim Merlier</td><td>SPR</td><td>32</td><td>88</td><td>52</td><td>83</td></tr>
+          <tr><td>INEOS Grenadiers</td><td>Tom Pidcock</td><td>LDR</td><td>25</td><td>82</td><td>85</td><td>83</td></tr>
+          <tr><td>INEOS Grenadiers</td><td>Egan Bernal</td><td>LDR</td><td>27</td><td>78</td><td>86</td><td>82</td></tr>
+          <tr><td>INEOS Grenadiers</td><td>Filippo Ganna</td><td>ROU</td><td>28</td><td>88</td><td>64</td><td>79</td></tr>
+          <tr><td>INEOS Grenadiers</td><td>Geraint Thomas</td><td>LDR</td><td>38</td><td>76</td><td>80</td><td>78</td></tr>
+          <tr><td>INEOS Grenadiers</td><td>Carlos Rodríguez</td><td>LDR</td><td>23</td><td>76</td><td>82</td><td>79</td></tr>
+          <tr><td>Alpecin–Deceuninck</td><td>Mathieu van der Poel</td><td>SPR</td><td>29</td><td>90</td><td>82</td><td>87</td></tr>
+          <tr><td>Alpecin–Deceuninck</td><td>Jasper Philipsen</td><td>SPR</td><td>26</td><td>87</td><td>54</td><td>81</td></tr>
+          <tr><td>Alpecin–Deceuninck</td><td>Kaden Groves</td><td>SPR</td><td>25</td><td>84</td><td>52</td><td>78</td></tr>
+          <tr><td>Lidl–Trek</td><td>Mads Pedersen</td><td>SPR</td><td>28</td><td>86</td><td>74</td><td>83</td></tr>
+          <tr><td>Lidl–Trek</td><td>Jonathan Milan</td><td>SPR</td><td>23</td><td>85</td><td>56</td><td>79</td></tr>
+          <tr><td>Lidl–Trek</td><td>Giulio Ciccone</td><td>LDR</td><td>29</td><td>76</td><td>82</td><td>79</td></tr>
+          <tr><td>Lidl–Trek</td><td>Tao Geoghegan Hart</td><td>LDR</td><td>29</td><td>74</td><td>80</td><td>77</td></tr>
+          <tr><td>EF Education–EasyPost</td><td>Richard Carapaz</td><td>LDR</td><td>31</td><td>78</td><td>87</td><td>82</td></tr>
+          <tr><td>EF Education–EasyPost</td><td>Neilson Powless</td><td>LDR</td><td>27</td><td>78</td><td>80</td><td>79</td></tr>
+          <tr><td>Movistar Team</td><td>Enric Mas</td><td>LDR</td><td>29</td><td>74</td><td>86</td><td>80</td></tr>
+          <tr><td>Movistar Team</td><td>Nairo Quintana</td><td>LDR</td><td>35</td><td>72</td><td>85</td><td>78</td></tr>
+          <tr><td>Bahrain Victorious</td><td>Matej Mohorič</td><td>SPR</td><td>30</td><td>86</td><td>78</td><td>83</td></tr>
+          <tr><td>Bahrain Victorious</td><td>Pello Bilbao</td><td>LDR</td><td>34</td><td>76</td><td>80</td><td>78</td></tr>
+          <tr><td>Bahrain Victorious</td><td>Antonio Tiberi</td><td>LDR</td><td>23</td><td>74</td><td>80</td><td>77</td></tr>
+          <tr><td>Groupama–FDJ</td><td>David Gaudu</td><td>LDR</td><td>28</td><td>74</td><td>84</td><td>79</td></tr>
+          <tr><td>Groupama–FDJ</td><td>Stefan Küng</td><td>ROU</td><td>30</td><td>84</td><td>62</td><td>76</td></tr>
+          <tr><td>Decathlon–AG2R</td><td>Ben O'Connor</td><td>LDR</td><td>28</td><td>74</td><td>84</td><td>79</td></tr>
+          <tr><td>Decathlon–AG2R</td><td>Felix Gall</td><td>LDR</td><td>26</td><td>74</td><td>83</td><td>78</td></tr>
+          <tr><td>Tud Pro Cycling</td><td>Marc Hirschi</td><td>SPR</td><td>30</td><td>84</td><td>76</td><td>82</td></tr>
+          <tr><td>Uno-X Mobility</td><td>Magnus Cort</td><td>SPR</td><td>31</td><td>82</td><td>70</td><td>78</td></tr>
+          <tr><td>Uno-X Mobility</td><td>Alexander Kristoff</td><td>SPR</td><td>37</td><td>80</td><td>54</td><td>75</td></tr>
+          <tr><td>Israel–Premier Tech</td><td>Derek Gee</td><td>LDR</td><td>26</td><td>80</td><td>76</td><td>78</td></tr>
+          <tr><td>Israel–Premier Tech</td><td>Michael Woods</td><td>LDR</td><td>37</td><td>72</td><td>82</td><td>77</td></tr>
+          <tr><td>Astana Qazaqstan</td><td>Mark Cavendish</td><td>SPR</td><td>39</td><td>84</td><td>44</td><td>76</td></tr>
+          <tr><td>Lotto Dstny</td><td>Arnaud De Lie</td><td>SPR</td><td>22</td><td>84</td><td>54</td><td>78</td></tr>
+          <tr><td>dsm–firmenich PostNL</td><td>Romain Bardet</td><td>LDR</td><td>34</td><td>72</td><td>82</td><td>77</td></tr>
+        </tbody>
+      </table>
+      <p>Each team carries ~26 such rows; the remaining domestiques are real names with
+      mid-pack attributes. The full data file is the single source of truth for the world.</p>
+
+      <h2>5. Race Entities</h2>
+      <h3>5.1 RaceProfile (static, per race)</h3>
+      <pre><code>{
+  id, name,                  // e.g. 'milano-sanremo', 'tdf-s15'
+  kind: 'classic'|'stage'|'itt'|'gt-stage',
+  distanceKm,                // race length
+  profile: Sector[],         // array of {km, type:'flat'|'climb'|'descent'|'finish', cat?:1..4, climbKm, climbPct}
+  date,                      // calendar week index
+  parcourType,               // 'flat'|'hilly'|'mountain'|'itt' — drives plan warnings
+}</code></pre>
+
+      <h3>5.2 StatLine (per-race, per-rider)</h3>
+      <p>Lives inside <code>RaceSim</code>, keyed by rider id. Never written back to the
+      <code>Rider</code> object during the race.</p>
+      <pre><code>{
+  id, name, type, role, started,
+  kmRidden, rating,            // 1–10, base 6.0
+  pulls, pullsKm,             // domestique work done
+  pullsAtFront, leadouts,
+  position, timeGap,           // final placing &amp; gap to winner
+  komPoints, sprintPoints,
+  dropped, abandoned,          // flags
+  crashed, crashMinute, weeksOut,
+  condition
+}</code></pre>
+
+      <h3>5.3 RaceResult</h3>
+      <p>Returned by <code>sim.finish()</code> and consumed by <code>Game.advanceWeek()</code>.</p>
+      <pre><code>{
+  seed, raceId, raceName,
+  kind: 'classic'|'stage',
+  distanceKm,
+  placings: [{ rider, team, position, timeGap, bunch }],
+  winner: { rider, team },
+  komPoints: [{ rider, points }],
+  sprintPoints: [{ rider, points }],
+  playerStats: StatLine[],
+  groups: [{ km, label, riders[], gapSec }],   // final group composition
+  events: [{ km, type, team?, rider?, text }],
+  crashes: [{ rider, team, km, weeksOut, abandoned }],
+  timeline: Snapshot[] | null
+}</code></pre>
+
+      <h2>6. Grand Tour &amp; Classification Entities</h2>
+      <h3>6.1 GrandTour</h3>
+      <pre><code>{
+  id, name,                   // 'giro' | 'tour' | 'vuelta'
+  startWeek, totalStages,
+  stages: StageResult[],      // appended as stages run
+  gc: GCEntry[],              // sorted general classification
+  jerseys: { gc, points, kom, white },   // rider ids
+  finished: boolean
+}</code></pre>
+      <h3>6.2 GCEntry</h3>
+      <pre><code>{ rider, team, totalTime, gapToLeader, stagesCompleted, abandoned }</code></pre>
+      <h3>6.3 StageResult</h3>
+      <p>A <code>RaceResult</code> with <code>kind:'gt-stage'</code> plus <code>stageNumber</code>,
+      <code>parcourType</code>, and time bonuses (10/6/4 s for the first three on road stages).</p>
+
+      <h2>7. Season-Support Entities</h2>
+      <h3>7.1 Standing (series table row)</h3>
+      <pre><code>{ team, points, wins, podiums, races, position }</code></pre>
+      <h3>7.2 InboxItem</h3>
+      <pre><code>{ week, season, subject, body, ...extra }  // extra may carry offerId / jobOffer</code></pre>
+      <h3>7.3 Offer (AI bid for a user rider)</h3>
+      <pre><code>{ id, riderId, rider, from, amount, week }</code></pre>
+      <h3>7.4 SeasonStats (per rider, per season)</h3>
+      <pre><code>{ raceDays, wins, podiums, pointsSum, komPoints, ratingSum, ratingN, motm }</code></pre>
+      <h3>7.5 SeasonHistory (one per completed season)</h3>
+      <pre><code>{
+  season, seriesChampion, seriesChampion2, promoted[], relegated[],
+  userPosition, userDivision,
+  giro: { winner, gc2, gc3 }, tour: {...}, vuelta: {...},
+  topPointsScorer: { name, team, points } | null,
+  riderOfSeason: { name, team, avg } | null
+}</code></pre>
+
+      <h2>8. Cardinalities &amp; Invariants</h2>
+      <table class="grid">
+        <thead><tr><th>Relationship</th><th>Cardinality</th><th>Invariant</th></tr></thead>
+        <tbody>
+          <tr><td>Game → Team</td><td>1 : 24</td><td>Exactly 12 per division; fixed for the career.</td></tr>
+          <tr><td>Team → Rider</td><td>1 : ~26 (start), ≥22 (always)</td><td>Neo-pro intake refills below 22.</td></tr>
+          <tr><td>Team → LDR</td><td>≥2</td><td>Squad-protection rule (<code>MIN_LEADERS</code>).</td></tr>
+          <tr><td>Race → starters</td><td>1 : 8 per team</td><td>≤2 LDR per race team; injured/ill never picked.</td></tr>
+          <tr><td>GrandTour → stages</td><td>1 : 21</td><td>2 rest days; ~2 ITT, ~5 summit finishes.</td></tr>
+          <tr><td>Calendar → entries</td><td>1 : ~28</td><td>Spring + 3 GTs + autumn.</td></tr>
+          <tr><td>Inbox → items</td><td>≤120</td><td>Truncated on insert.</td></tr>
+          <tr><td>Free agents</td><td>≤60</td><td>Truncated at season end.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>9. Validation Rules</h2>
+      <p><code>validateTeam()</code> enforces the structural contract for any race team handed to the race engine:</p>
+      <ul>
+        <li>Exactly 8 riders.</li>
+        <li>At most 2 LDR; exactly 1 designated leader for the race plan.</li>
+        <li>Every role is one of <code>LDR/SPR/CLM/ROU</code>.</li>
+        <li><code>power</code> and <code>climb</code> are finite and within [1, 99].</li>
+        <li>No duplicate rider names within the team.</li>
+      </ul>
+      <p>These guards throw descriptive errors before any simulation begins, which the test
+      suite exercises explicitly.</p>
+
+      <p style="margin-top:30px"><a href="02-architecture.html">← 02 · Architecture</a> · <a href="04-engine-specs.html">Next: 04 · Engine Specs →</a></p>
+    </article>
+  </main>
+
+  <footer>Pelotonman design documentation · 03 · Data Model</footer>
+</body>
+</html>

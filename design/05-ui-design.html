@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>05 · UI Design — Pelotonman Design</title>
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">🚴 PELOTONMAN</span>
+    <span class="crumb"><a href="index.html">Design</a> › 05 · UI Design</span>
+    <span class="spacer"></span>
+    <span class="meta">UI/UX · v0.1</span>
+  </header>
+
+  <main class="wrap">
+    <nav class="side-nav">
+      <h3>Overview</h3>
+      <a href="index.html">Home</a>
+      <a href="01-requirements.html">01 · Requirements</a>
+      <h3>Design</h3>
+      <a href="02-architecture.html">02 · Architecture</a>
+      <a href="03-data-model.html">03 · Data Model</a>
+      <a href="04-engine-specs.html">04 · Engine Specs</a>
+      <a href="05-ui-design.html" class="active">05 · UI Design</a>
+      <h3>Delivery</h3>
+      <a href="06-test-plan.html">06 · Test Plan</a>
+    </nav>
+
+    <article class="doc">
+      <h1>05 · UI / UX Design</h1>
+      <p class="subtitle">Screen flows, design language, and wireframes</p>
+
+      <h2>1. Design Language</h2>
+      <p>The interface deliberately mimics a <strong>retro management terminal</strong>: a deep
+      navy surface, dense monospace tables, a points-jersey green accent, and a gold highlight
+      for the maillot jaune / prestige. The aesthetic is the late-90s manager sim — functional,
+      information-dense, and instantly readable — rather than a modern glossy broadcast product.</p>
+      <table class="grid">
+        <thead><tr><th>Token</th><th>Value</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>--bg</code></td><td>#0a1226</td><td>Page surface</td></tr>
+          <tr><td><code>--surface</code></td><td>#101d3d</td><td>Panels &amp; tables</td></tr>
+          <tr><td><code>--surface-2</code></td><td>#16264e</td><td>Hovers &amp; buttons</td></tr>
+          <tr><td><code>--accent</code></td><td>#3dd6a0</td><td>Points-jersey green — primary actions, active states</td></tr>
+          <tr><td><code>--gold</code></td><td>#ffd75e</td><td>Maillot jaune — GC leader, ratings, awards</td></tr>
+          <tr><td><code>--red</code></td><td>#ff5d5d</td><td>KOM polka-dot — crashes, abandons, relegation</td></tr>
+          <tr><td><code>--blue</code></td><td>#6aa6ff</td><td>White jersey / young rider / misc callouts</td></tr>
+          <tr><td><code>--font</code></td><td>Cascadia Mono / SF Mono</td><td>Monospace throughout</td></tr>
+        </tbody>
+      </table>
+      <div class="callout">
+        <span class="label">Design principle</span>
+        <p>Every screen is a <em>table</em>. The genre lives in dense rows of numbers; the UI
+        leans into that rather than fighting it. The two graphical elements are the <strong>race
+        profile chart</strong> (an elevation strip on race week) and the <strong>peloton track</strong>
+        on race day — both present but never loud. Jersey colours reuse the palette tokens, so the
+        maillot jaune, points green, KOM red, and white jersey are always colour-consistent.</p>
+      </div>
+
+      <h2>2. Information Architecture</h2>
+      <p>The application has three top-level modes, switched by hiding/showing sections:</p>
+      <div class="diagram">
+<pre>
+                    ┌─────────────────────┐
+                    │   Start Screen       │  new career / continue
+                    └──────────┬──────────┘
+                               │ start
+                               ▼
+              ┌────────────────────────────────┐
+              │       Management Hub            │  ◄──── sidebar nav (10 screens)
+              │  inbox · squad · race plan ·    │       Continue ▸ advances time
+              │  calendar · series · grand     │
+              │  tours · transfers · finances  │
+              │  · team & board                │
+              └────────────┬───────────────────┘
+                           │ Continue (when user has a race)
+                           ▼
+              ┌────────────────────────────────┐
+              │        Race Day                 │
+              │  pre-race → live → full time    │
+              └────────────┬───────────────────┘
+                           │ Continue ▸
+                           ▼
+                    (back to Hub → week summary)
+</pre>
+      </div>
+      <p>The hub's left sidebar is the persistent spine: a prominent <strong>Continue ▸</strong>
+      button at the top, ten navigation buttons, and a save control at the foot. The header
+      carries a live HUD (team, manager, season, week, balance).</p>
+
+      <h2>3. Screen-by-Screen Specification</h2>
+      <p>Each screen below pairs the design intent with a wireframe. (Real screenshots will be
+      captured from the running app and substituted into this document once the engine is
+      implemented, mirroring the football sibling's screenshot-driven UI doc.)</p>
+
+      <h3>3.1 Start / New Career</h3>
+      <p>Entry point. A manager-name field, a "Continue saved game" button (shown only when a
+      save exists), and a master team table paired with a live roster inspector. Hovering a team
+      row populates the right-hand roster panel; clicking starts a career. Each team row shows
+      division, unit ratings (LDR/SPR/CLM/ROU), an overall, and the board's expectation. Real
+      team names; the inspector shows real rider names.</p>
+      <pre><code>┌──────────────────────────────────────────────────────────────────┐
+│  MANAGER NAME [__________________]      [Continue saved game]     │
+├────────────────────────────────┬─────────────────────────────────┤
+│ TEAM                 DIV  LDR SPR CLM ROU OVR EXP │ UAE ROSTER   │
+│ UAE Team Emirates    1    88 84 86 78  86  1   ◀ │ Pogačar  LDR │
+│ Visma | Lease a Bike 1    86 88 82 80  85  2     │ Yates    LDR │
+│ Red Bull–Bora        1    84 80 84 76  82  3     │ Almeida  LDR │
+│ Soudal–Quick-Step    1    84 82 80 78  82  4     │ Ayuso    LDR │
+│ ...                                                 │ Merlier  SPR │
+└────────────────────────────────┴─────────────────────────────────┘</code></pre>
+
+      <h3>3.2 Inbox</h3>
+      <p>The default landing screen after starting or continuing. Time-stamped news items
+      (newest first) with subjects in gold and bodies in body text. Items that carry an
+      <code>offerId</code> render inline <strong>Accept / Reject</strong> actions — the inbox is
+      not just a log, it's an actionable queue. A badge on the nav button counts pending offers.</p>
+
+      <h3>3.3 Squad</h3>
+      <p>The roster sorted by role then ability. Columns: role, name (with status tags for
+      INJ/DNF/LISTED), age, power, climb, condition bar, form, morale bar, wage, value, contract
+      years (red when ≤1), and per-rider <strong>List</strong> / <strong>Renew</strong> actions.
+      A header summary shows roster size and the annual wage bill.</p>
+
+      <h3>3.4 Race Plan</h3>
+      <p>Race plan and aggression selectors, an auto-pick button, and three tables: Race Team
+      (8, with role labels — OOR tagged when a rider is out of role), Reserves (4), and Rested.
+      Interaction is click-to-swap: the first click selects a row (gold highlight), the second
+      click on a different row swaps the two riders. A profile-awareness warning appears when
+      the chosen plan mismatches the next race's parcour (e.g. Sprint Train on a mountain stage).</p>
+      <pre><code>RACE PLAN  [Sprint Train ▾]   AGGRESSION  [normal ▾]   [Auto-pick]
+┌─── RACE TEAM (8) ──────────┐  ┌── RESERVES (4) ──┐  ┌── RESTED ──┐
+│ LDR  Pogačar      *leader  │  │ Politt       SPR  │  │ Bjerg   ROU │
+│ SPR  Merlier               │  │ Mezgec       ROU  │  │ ...        │
+│ SPR  Philipsen             │  │ ...               │  │            │
+│ CLM  Yates                 │  │                   │  │            │
+│ ROU  McNulty               │  │                   │  │            │
+│ ...                        │  │                   │  │            │
+└────────────────────────────┘  └───────────────────┘  └────────────┘</code></pre>
+
+      <h3>3.5 Calendar &amp; Results</h3>
+      <p>The full season calendar as a table: week number, race name + kind chip (classic /
+      stage / GT), and your team's result (winner + your best placer + placing, or "DNS" if you
+      didn't enter). The current week is highlighted. Grand Tour weeks expand to show the stage
+      number and the day's stage winner + jersey changes. A small <strong>elevation strip</strong>
+      renders inline for the next race's profile.</p>
+
+      <h3>3.6 Series Standings</h3>
+      <p>Both divisions side by side, your division first. Standard P/W/PD/RD/PTS columns (races,
+      wins, podiums, top-10s, points). Promotion and relegation zones are marked with coloured
+      left borders (green up, red down); your team row is highlighted. The header notes the
+      movement rule for each division.</p>
+
+      <h3>3.7 Grand Tours</h3>
+      <p>A three-tab view (Giro / Tour / Vuelta). Each tab shows the stage list with the day's
+      stage winner, the four <strong>jersey holders</strong> (colour-coded chips), and a live GC
+      top 10 with time gaps. When a GT is won, a gold winner panel replaces the live view with
+      the final podium (GC, points, KOM, white) and your team's stage wins.</p>
+      <pre><code>GIRO D'ITALIA · stage 14/21    🟡 GC: Pogačar   🟢 PTS: Merlier   🔴 KOM: Gall   ⬜ WHT: Ayuso
+┌──── STAGE LIST ────────────────────────────────┬──── GC TOP 10 ────────────────────────┐
+│ 14  Mountain → Pordoi Pass    WIN: Carapaz     │ 1  Pogačar      UAE    0:00:00        │
+│ 13  ITT        33 km          WIN: Ganna       │ 2  Vingegaard   TVM    +0:48          │
+│ 12  Flat       sprint         WIN: Philipsen   │ 3  Rogliča      RBB    +1:12          │
+│ ...                                             │ ...                                    │
+└─────────────────────────────────────────────────┴────────────────────────────────────────┘</code></pre>
+
+      <h3>3.8 Transfers</h3>
+      <p>The market screen. Role and max-value filters; a results table showing role, name
+      (with status tags), team (or "Free agent"), age, power/climb (exact for own/scouted riders,
+      <strong>ranges</strong> for everyone else), value, asking price, and per-row
+      <strong>Scout</strong> / <strong>Bid</strong> (or <strong>Sign</strong> for free agents)
+      actions. A header shows transfer budget, balance, and the scout fee. Counter-offers update
+      the asking price in place for a one-click accept.</p>
+
+      <h3>3.9 Finances</h3>
+      <p>Balance, transfer budget, annual wage bill (flagged red if projected wages exceed
+      budget), and a prize-money panel: season points so far, last race prize, season prize
+      total. The sponsorship panel shows marketability, current title-sponsor deal value, and
+      projected renewal. The infrastructure panel quotes the next build (level + cost + gain)
+      or shows build progress, with the board's refusal reason when funds are insufficient. A
+      top-earners table closes the screen.</p>
+
+      <h3>3.10 Team &amp; Board</h3>
+      <p>The strategic dashboard. Board confidence and manager reputation as bars; expectation vs
+      current series position; a season top-points-scorers table; and a past-seasons history table
+      (series champions, GT winners, your finish, top scorer). When a bigger team comes calling,
+      a poach-offer panel with Accept / Decline appears at the top.</p>
+
+      <h3>3.11 Pre-Race</h3>
+      <p>Shown when Continue finds a user race. A three-column layout: your race team (8), your
+      reserves (with the Roll out button), and an opposition report — the scout card with the
+      race profile elevation strip, the opponent's series position, form guide (colour-coded
+      W/T/L), danger rider, and predicted 8. For Grand Tour stages, the current jerseys and GC
+      gaps appear above. This is the payoff for the scouting system: orders now have information
+      to react to.</p>
+      <pre><code>┌── YOUR TEAM ──┐┌── RESERVES ──┐┌── OPPOSITION REPORT ──────────────┐
+│ LDR Pogačar   ││ Politt SPR   ││ Milan–San Remo · 294 km · flat     │
+│ SPR Merlier   ││ Mezgec ROU   ││   /\__/\___/\____/\__  elevation   │
+│ SPR Philipsen ││ ...          ││ EF Edu–EasyPost · 5th in series    │
+│ CLM Yates     ││              ││ Form: W-T-W-L-W                    │
+│ ROU McNulty   ││              ││ Danger: M. van der Poel (SPR)      │
+│ ...           ││              ││ Predicted 8: MvdP, Philipsen, ...  │
+│ [Roll out ▸]  ││              ││                                    │
+└───────────────┘└──────────────┘└────────────────────────────────────┘</code></pre>
+
+      <h3>3.12 Live Race Day</h3>
+      <p>The signature screen. A race header (race name, km done / total, the lead group's gap
+      to the peloton, current sector type), a speed bar (Normal / Fast / Instant + Pause), a
+      commentary feed (auto-scrolling, colour-coded by event type), and a right-hand column with
+      the <strong>peloton track</strong> and a tabbed <strong>rider-stats table</strong>.</p>
+      <p>The track shows the peloton and any breakaway groups as chips positioned by gap, each
+      carrying a live rating (colour-banded cold→hot), the surname, and a team-colour tick. The
+      break's gap is shown as a seconds label between groups. A sector profile mini-chart sits
+      beneath the track, with a marker for the current km. Wins trigger a header flash and a chip
+      pop animation. When the race auto-pauses at a key moment, a gold <strong>team-orders
+      panel</strong> slides in with the order buttons — <em>Chase</em>, <em>Control / sit in</em>,
+      <em>Send up road</em>, <em>Leadout</em>, <em>Attack</em> — plus mid-race plan/aggression
+      controls and the rider list (on-course + reserves, "X fresh" counter).</p>
+      <pre><code>MILAN–SAN REMO · 142 / 294 km · BREAK +2:15 · Cipressa climb
+┌── COMMENTARY ───────────────┐┌── TRACK ──────────────────────────────┐
+│ 142 km  Break of 4 forms     ││   [Girmay]·[Mohorič]·[Cort]·[Haller]  │
+│ 140 km  UAE pulls the bunch  ││            +2:15                      │
+│ 138 km  Merlier sits in       ││   ▓▓▓▓▓▓ PELATON ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
+│ 135 km  Pogačar near the front││   profile:  /\__/\____/\_________▲   │
+│ ...                           │└───────────────────────────────────────┘
+│  [Normal][Fast][Inst][Pause] │  [chase][control][send up][leadout][attack]
+└───────────────────────────────┘</code></pre>
+      <p>For Grand Tour stages, the jerseys panel persists at the top of the track column and
+      updates live; a stage-result mini-summary appears at the summit of each climb.</p>
+
+      <h3>3.13 Full Time</h3>
+      <p>Placings (top 20) with time gaps, the winner highlighted in gold, your riders' results
+      flagged, and a symmetrical stats comparison (your team vs the field: avg placing, points
+      taken, KOM points, domestique pulls, crashes). A primary <strong>Continue ▸</strong>
+      button commits the result and advances the week. For a GT stage, the jersey changes and GC
+      top-5 deltas appear alongside.</p>
+
+      <h2>4. Interaction Patterns</h2>
+      <table class="grid">
+        <thead><tr><th>Pattern</th><th>Where</th><th>Behaviour</th></tr></thead>
+        <tbody>
+          <tr><td>Click-to-swap</td><td>Race Plan, orders panel</td><td>First click selects (gold), second click swaps; same row deselects.</td></tr>
+          <tr><td>Inline actions</td><td>Inbox, Squad, Transfers</td><td>Mini-buttons render inside the row/item that owns the action.</td></tr>
+          <tr><td>Auto-pause on key moment</td><td>Race Day</td><td>Break forming / climb summit / final 5 km / own crash halts the timer and opens the orders panel.</td></tr>
+          <tr><td>Speed control</td><td>Race Day</td><td>Normal (300ms) / Fast (80ms) / Instant (0, runs to completion).</td></tr>
+          <tr><td>Auto-save</td><td>Every transition</td><td>Continue, transfers, race plans, and race end all persist to localStorage.</td></tr>
+          <tr><td>Badge counters</td><td>Sidebar</td><td>Inbox badge reflects pending transfer offers.</td></tr>
+          <tr><td>Profile warning</td><td>Race Plan, Pre-Race</td><td>Plan/parcour mismatch shows an inline amber warning.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>5. Responsive Behaviour</h2>
+      <p>The layout adapts at three breakpoints:</p>
+      <ul>
+        <li><strong>&gt; 980px</strong>: full three-column pre-race; two-column race layout (commentary + track/stats).</li>
+        <li><strong>≤ 980px</strong>: pre-race collapses to two columns; opposition report spans full width.</li>
+        <li><strong>≤ 900px</strong>: race layout stacks to a single column; track below commentary.</li>
+        <li><strong>≤ 720px</strong>: start-screen select-layout stacks; race header shrinks; commentary height reduces.</li>
+      </ul>
+
+      <h2>6. Accessibility</h2>
+      <ul>
+        <li>Team-selection rows are focusable (<code>tabindex="0"</code>) and activate on Enter/Space.</li>
+        <li>The commentary feed and squad panel use <code>aria-live="polite"</code>.</li>
+        <li>All interactive controls have visible <code>:focus-visible</code> outlines in the accent colour.</li>
+        <li>The track carries an <code>aria-label="Peloton track view"</code>; the rider-stats table has a caption.</li>
+        <li>Jersey status is conveyed by colour <em>and</em> a text label (GC/PTS/KOM/WHT), so colour is not the only signal.</li>
+        <li>Race profile charts include an <code>aria-label</code> describing the parcours type and key climbs.</li>
+      </ul>
+
+      <p style="margin-top:30px"><a href="04-engine-specs.html">← 04 · Engine Specs</a> · <a href="06-test-plan.html">Next: 06 · Test Plan →</a></p>
+    </article>
+  </main>
+
+  <footer>Pelotonman design documentation · 05 · UI Design</footer>
+</body>
+</html>

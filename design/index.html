@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pelotonman — Design Documentation</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚴</text></svg>">
+  <link rel="stylesheet" href="design.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">🚴 PELOTONMAN</span>
+    <span class="crumb">Design Documentation</span>
+    <span class="spacer"></span>
+    <span class="meta">v0.1 · specified 2026-07-11</span>
+  </header>
+
+  <main class="wrap">
+    <nav class="side-nav">
+      <h3>Overview</h3>
+      <a href="index.html" class="active">Home</a>
+      <a href="01-requirements.html">01 · Requirements</a>
+      <h3>Design</h3>
+      <a href="02-architecture.html">02 · Architecture</a>
+      <a href="03-data-model.html">03 · Data Model</a>
+      <a href="04-engine-specs.html">04 · Engine Specs</a>
+      <a href="05-ui-design.html">05 · UI Design</a>
+      <h3>Delivery</h3>
+      <a href="06-test-plan.html">06 · Test Plan</a>
+    </nav>
+
+    <article class="doc">
+      <div class="hero">
+        <div class="badge">Waterfall Design Package · Forward Specification</div>
+        <h1>PELOTONMAN</h1>
+        <p>A retro cycling-team management career game that runs entirely in the browser,
+        modelled on the manager sims of the late 90s but set in the professional road
+        peloton. Take charge of a real WorldTour or ProTeam, manage riders, race plans,
+        transfers, sponsorship, and the board across a full season of classics, stage
+        races, and Grand Tours — with a resumable, pausable race engine you direct from
+        the team car. No build step, no backend; games auto-save to localStorage and
+        replay deterministically from their seed.</p>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><span class="num">24</span><span class="lbl">Real teams · 2 divisions</span></div>
+        <div class="stat"><span class="num">~600</span><span class="lbl">Real riders</span></div>
+        <div class="stat"><span class="num">~28</span><span class="lbl">Real races/season</span></div>
+        <div class="stat"><span class="num">4</span><span class="lbl">Rider roles</span></div>
+        <div class="stat"><span class="num">0</span><span class="lbl">Build steps</span></div>
+      </div>
+
+      <h2>Document Index</h2>
+      <div class="doc-grid">
+        <a class="doc-card" href="01-requirements.html">
+          <span class="num">01</span>
+          <h3>Requirements Specification</h3>
+          <p>Functional &amp; non-functional requirements, user stories, acceptance criteria, and the product scope.</p>
+        </a>
+        <a class="doc-card" href="02-architecture.html">
+          <span class="num">02</span>
+          <h3>System Architecture</h3>
+          <p>Layered architecture, module dependency graph, the determinism contract, and the persistence model.</p>
+        </a>
+        <a class="doc-card" href="03-data-model.html">
+          <span class="num">03</span>
+          <h3>Data Model</h3>
+          <p>Domain entities — teams, riders, squads, races, classifications, seasons, the career game state — and their relationships.</p>
+        </a>
+        <a class="doc-card" href="04-engine-specs.html">
+          <span class="num">04</span>
+          <h3>Engine Specifications</h3>
+          <p>Detailed specs for the race simulator, season points series, Grand Tour, transfers, and the season loop.</p>
+        </a>
+        <a class="doc-card" href="05-ui-design.html">
+          <span class="num">05</span>
+          <h3>UI / UX Design</h3>
+          <p>Screen flows, wireframes, and the design language for every screen in the running application.</p>
+        </a>
+        <a class="doc-card" href="06-test-plan.html">
+          <span class="num">06</span>
+          <h3>Test &amp; QA Plan</h3>
+          <p>Test strategy, coverage matrix, statistical realism harness, and the browser smoke harness.</p>
+        </a>
+      </div>
+
+      <h2>Product at a Glance</h2>
+      <div class="callout blue">
+        <span class="label">Elevator pitch</span>
+        <p>Take the helm of one of 24 real professional teams across the WorldTour and
+        ProTeam divisions and manage riders, race plans, transfers, sponsorship, and the
+        board across a full season of one-day classics, stage races, and three Grand Tours —
+        all in the browser, with a resumable kilometer-by-kilometer race engine you can
+        pause from the team car to issue orders: chase a break, send a domestique up the
+        road, launch the sprinter, or tell your leader to attack on the final climb. No
+        build step, no backend; games auto-save to localStorage and replay deterministically
+        from their seed.</p>
+      </div>
+
+      <table class="grid">
+        <thead><tr><th>Attribute</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Genre</td><td>Cycling team management simulation / career game</td></tr>
+          <tr><td>Inspiration</td><td>Championship Manager 99/00 structure, applied to professional road cycling</td></tr>
+          <tr><td>Platform</td><td>Any modern browser (ES modules, no transpilation)</td></tr>
+          <tr><td>Runtime stack</td><td>Vanilla JS (ES2020+), HTML, CSS — zero dependencies at runtime</td></tr>
+          <tr><td>Dev dependencies</td><td><code>puppeteer-core</code> (E2E smoke only), <code>node --test</code></td></tr>
+          <tr><td>World size</td><td>24 real teams · 2 divisions of 12 · 3 Grand Tours + classics series</td></tr>
+          <tr><td>Squad model</td><td>~26 riders per team · 4 roles (LDR/SPR/CLM/ROU) · 8 selected per race · 1–99 attributes</td></tr>
+          <tr><td>Season calendar</td><td>~28 race days: spring classics, stage races, 3 Grand Tours, autumn classics</td></tr>
+          <tr><td>Persistence</td><td>localStorage, JSON, <code>SAVE_VERSION 1</code></td></tr>
+          <tr><td>Determinism</td><td>Single seeded mulberry32 RNG; identical seed → identical career</td></tr>
+          <tr><td>Real-world data</td><td>Real team names, real rider names, real race names (attributes are fictional/game-tuned)</td></tr>
+        </tbody>
+      </table>
+
+      <h2>The Football → Cycling Translation</h2>
+      <p>Pelotonman shares its skeleton with the football manager it descends from, but every
+      domain concept is re-grounded in professional road cycling. The table below is the
+      translation key used throughout the design.</p>
+      <table class="grid">
+        <thead><tr><th>Football (champman)</th><th>Cycling (pelotonman)</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Club</td><td>Team (trade team / squad)</td><td>Real WT / ProTeam names</td></tr>
+          <tr><td>Player</td><td>Rider</td><td>Real rider names; ~26 per team</td></tr>
+          <tr><td>Position GK/DF/MF/FW</td><td>Role LDR/SPR/CLM/ROU</td><td>Leader / Sprinter / Climber / Rouleur</td></tr>
+          <tr><td>Attributes atk / def</td><td>Attributes power / climb</td><td>Plus time-trial &amp; sprint derived</td></tr>
+          <tr><td>Formation</td><td>Race plan</td><td>Sprint Train, Climbing Block, All-Round, Breakaway, GC Defence</td></tr>
+          <tr><td>Mentality</td><td>Aggression</td><td>defensive / normal / attacking</td></tr>
+          <tr><td>Match (90 min)</td><td>Race (km, one-day or stage)</td><td>Resumable km-by-km; peloton + breakaways</td></tr>
+          <tr><td>League (round-robin)</td><td>Season points series</td><td>UCI-style team standings across the calendar</td></tr>
+          <tr><td>Knockout cup</td><td>Grand Tour (3-week GC)</td><td>Tour de France, Giro, Vuelta — the showpiece</td></tr>
+          <tr><td>Goals / score</td><td>Placings / time gaps / points</td><td>GC time, points jersey, KOM jersey</td></tr>
+          <tr><td>Substitution</td><td>Team orders / role reassignment</td><td>Chase, leadout, send up road, protect leader</td></tr>
+          <tr><td>Cards &amp; bans</td><td>Crashes &amp; mechanicals</td><td>Rider may be dropped, lose time, or abandon (DNF)</td></tr>
+          <tr><td>Stadium &amp; gate receipts</td><td>Sponsorship &amp; infrastructure</td><td>Title-sponsor deal grows with marketability</td></tr>
+          <tr><td>Fanbase / attendance</td><td>Supporter following / marketability</td><td>Drives sponsorship value &amp; TV exposure</td></tr>
+          <tr><td>Transfer market</td><td>Rider transfers (off-season + mid-season)</td><td>Real riders move between real teams</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Jersey Legend</h2>
+      <p>The four classification jerseys recur throughout the design — colour-coded to match the UI palette.</p>
+      <p>
+        <span class="jersey gc"><span class="dot"></span> GC · Maillot Jaune — overall general classification</span> &nbsp;
+        <span class="jersey pts"><span class="dot"></span> Points — sprint / consistency classification</span> &nbsp;
+        <span class="jersey kom"><span class="dot"></span> KOM — mountains / polka-dot classification</span> &nbsp;
+        <span class="jersey young"><span class="dot"></span> Young rider — white jersey, ≤25</span>
+      </p>
+
+      <h2>How to read this package</h2>
+      <p>The documents are ordered as a waterfall delivery: requirements flow down into
+      architecture and data model, which flow into engine and UI specifications, which
+      flow into the test plan. Each document is self-contained but cross-references the
+      others.</p>
+
+      <blockquote>
+        <p><strong>Specification note.</strong> Unlike its football sibling, which was
+        reverse-engineered from an existing codebase, this package is a <em>forward</em>
+        specification: the target design is written here first, and the engine stubs
+        already present (<code>rng.js</code>, <code>riders.js</code>, <code>squad.js</code>)
+        are consistent with it. Real team, rider, and race names are used throughout;
+        rider attributes are game-tuned and do not claim to reflect real-world ability.</p>
+      </blockquote>
+    </article>
+  </main>
+
+  <footer>Pelotonman design documentation · generated 2026-07-11 · 🚴</footer>
+</body>
+</html>

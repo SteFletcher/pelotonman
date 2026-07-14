@@ -6,7 +6,7 @@
 import { createRng } from './rng.js';
 import { slotPenalty, RACE_TEAM_SIZE, MAX_LEADERS } from './squad.js';
 
-export const CRASH_PROB = 0.0016;
+export const CRASH_PROB = 0.00009;
 export const BASE_BREAK_PROB = 0.18;
 export const CHASE_EFFICIENCY = 0.85;
 
@@ -292,10 +292,10 @@ export class RaceSim {
 
   formBreak(riderIds) {
     for (const id of riderIds) {
+      if (!this.pelotonMembers.includes(id)) continue; // only peloton riders can go up road
       move(this.pelotonMembers, this.breakMembers, id);
-      const st = this.statMap.get(id);
-      st.komPoints += 0;
     }
+    if (this.breakMembers.length === 0) return; // nobody could go
     this.breakGapSec = 5 + this.rng.next() * 45; // 5-50s initial gap
   }
 
@@ -549,18 +549,21 @@ export class RaceSim {
       front.push(...back.splice(0));
     }
 
+    const isClimbFinish = sector.type === 'climb' || (sector.type === 'finish' && (sector.cat || this.profile.parcourType === 'mountain'));
     const sortKey = (id) => {
       const rr = this.riderMap.get(id);
       const st = this.statMap.get(id);
       let base;
-      if (sector.type === 'climb') base = effectiveClimb(rr, st) + (rr.role === 'LDR' ? 3 : 0);
+      if (isClimbFinish) base = effectiveClimb(rr, st) + (rr.role === 'LDR' ? 3 : 0);
       else base = effectivePower(rr, st) * (sector.type === 'hilly' ? 1.0 : 1.08);
       if (this.breakMembers.includes(id)) base += 6; // break advantage
       if (this.droppedMembers.includes(id)) base -= 20;
       if (rr.role === 'SPR' && sector.type === 'flat') base += leadoutBonus(rr, this) + 4;
       // One-day racing is inherently stochastic; strong riders are favoured but the
-      // result is not pre-ordained. Variance is deterministic per seed.
-      return base + this.rng.next() * 24;
+      // result is not pre-ordained. Variance is deterministic per seed and smaller on
+      // summit finishes so climbers reliably dominate mountain stages.
+      const noiseScale = isClimbFinish ? 7 : 26;
+      return base + this.rng.next() * noiseScale;
     };
 
     front.sort((a, b) => sortKey(b) - sortKey(a));
@@ -755,15 +758,17 @@ function computeBreakFormChance(entries, orders, sector, rng) {
   // pick 2-6 riders
   const size = 2 + Math.floor(rng.next() * 5);
   r.riders = rng.shuffle(candidates).slice(0, size).map((rr) => rr.rider.id);
-  // scale probability by candidate count; capped to ensure most races see action
-  r.prob = Math.min(0.75, r.prob * (candidates.length / 10));
+  // scale probability by candidate count; capped so only a fraction of races see a break
+  r.prob = Math.min(0.03, r.prob * (candidates.length / 18));
   return r;
 }
 
 function move(src, dst, id) {
   const idx = src.indexOf(id);
-  if (idx >= 0) src.splice(idx, 1);
+  if (idx < 0) return false; // not present in source — do not duplicate into dst
+  src.splice(idx, 1);
   if (!dst.includes(id)) dst.push(id);
+  return true;
 }
 
 function clamp(v, lo, hi) {
@@ -781,12 +786,13 @@ function finishGapBetween(idA, idB, sector, sim) {
   const rrB = sim.riderMap.get(idB);
   const stA = sim.statMap.get(idA);
   const stB = sim.statMap.get(idB);
-  const a = sector.type === 'climb' ? effectiveClimb(rrA, stA) : effectivePower(rrA, stA);
-  const b = sector.type === 'climb' ? effectiveClimb(rrB, stB) : effectivePower(rrB, stB);
+  const isClimb = sector.type === 'climb' || (sector.type === 'finish' && (sector.cat || sim.profile.parcourType === 'mountain'));
+  const a = isClimb ? effectiveClimb(rrA, stA) : effectivePower(rrA, stA);
+  const b = isClimb ? effectiveClimb(rrB, stB) : effectivePower(rrB, stB);
   const diff = a - b;
   // sprinters bunch on flat; gaps small
   let base = sector.type === 'flat' ? 0.05 : 0.25;
-  if (sector.type === 'climb') base = 1.2;
+  if (isClimb) base = 1.2;
   if (sim.droppedMembers.includes(idB)) base += 8;
   // bonus for breakaway if b is in peloton after a in break
   if (sim.breakMembers.includes(idA) && sim.pelotonMembers.includes(idB)) base += sim.breakGapSec * 0.6;

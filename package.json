@@ -1,0 +1,15 @@
+{
+  "name": "pelotonman",
+  "version": "0.1.0",
+  "description": "Pelotonman — a retro cycling-team management career game that runs in the browser",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "serve": "python3 -m http.server 8124",
+    "smoke": "node test/browser-smoke.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.0.0"
+  }
+}

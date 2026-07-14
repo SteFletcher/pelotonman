@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pelotonman</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚴</text></svg>">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="topbar" class="hidden">
+      <span class="brand">🚴 PELOTONMAN</span>
+      <span class="meta" id="hud"></span>
+      <span class="spacer"></span>
+      <button id="save-btn" title="Save to localStorage">💾</button>
+    </header>
+
+    <div id="main-wrap" class="hidden">
+      <nav id="sidebar" class="hidden">
+        <button id="continue-btn" class="primary">Continue ▸</button>
+        <button data-screen="inbox">Inbox <span id="inbox-badge" class="badge">0</span></button>
+        <button data-screen="squad">Squad</button>
+        <button data-screen="race-plan">Race Plan</button>
+        <button data-screen="calendar">Calendar</button>
+        <button data-screen="series">Series</button>
+        <button data-screen="grand-tours">Grand Tours</button>
+        <button data-screen="transfers">Transfers</button>
+        <button data-screen="finances">Finances</button>
+        <button data-screen="team-board">Team &amp; Board</button>
+      </nav>
+
+      <main id="screen-content"></main>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
